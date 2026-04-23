@@ -3,7 +3,7 @@ Full test suite for Component 3 — Probabilistic Inconsistency Signal.
 No network, no model downloads.
 
 Test groups:
-  A. CredalInterval algebra
+  A. CI algebra
   B. CredalInconsistencyEngine — pairwise, aggregation, type classification
   C. _aggregate_independent correctness (the critical FIX-1 test)
   D. MetaCognitiveExtractor (mock hidden states)
@@ -21,7 +21,7 @@ import numpy as np
 from typing import List
 
 component3_probabilistic import (
-    CredalInterval,
+    CI,
     InconsistencyType,
     RetrievedEvidence,
     SymbolicProofStep,
@@ -42,7 +42,7 @@ def make_evidence(
     return RetrievedEvidence(
         text="The Eiffel Tower was built in 1889.",
         source_id="wiki_001",
-        confidence=CredalInterval(lo, hi),
+        confidence=CI(lo, hi),
         relevance_score=0.9,
         sparse_score=10.0,
         hop_depth=hop,
@@ -59,69 +59,69 @@ def make_step(
         rule_name=rule,
         premises=["eiffel_tower(X)", "located_in(X, paris)"],
         conclusion="city(paris)",
-        confidence=CredalInterval(lo, hi),
+        confidence=CI(lo, hi),
         step_index=idx,
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# A — CredalInterval
+# A — CI
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestCredalInterval(unittest.TestCase):
 
     def test_basic_properties(self):
-        ci = CredalInterval(0.3, 0.7)
+        ci = CI(0.3, 0.7)
         self.assertAlmostEqual(ci.midpoint, 0.5)
         self.assertAlmostEqual(ci.width, 0.4)
         self.assertFalse(ci.is_precise)
 
     def test_clamp_to_unit_interval(self):
-        ci = CredalInterval(-0.5, 1.5)
+        ci = CI(-0.5, 1.5)
         self.assertGreaterEqual(ci.lower, 0.0)
         self.assertLessEqual(ci.upper, 1.0)
 
     def test_auto_swap_inverted(self):
-        ci = CredalInterval(0.9, 0.1)   # inverted → should be swapped
+        ci = CI(0.9, 0.1)   # inverted → should be swapped
         self.assertLessEqual(ci.lower, ci.upper)
 
     def test_invariant_lower_le_upper(self):
         for lo, hi in [(0.3, 0.7), (0.5, 0.5), (0.0, 1.0), (0.7, 0.3)]:
-            ci = CredalInterval(lo, hi)
+            ci = CI(lo, hi)
             self.assertLessEqual(ci.lower, ci.upper, f"Violated for ({lo},{hi})")
 
     def test_precise_interval(self):
-        ci = CredalInterval(0.5, 0.5)
+        ci = CI(0.5, 0.5)
         self.assertTrue(ci.is_precise)
 
     def test_intersect_overlap(self):
-        a = CredalInterval(0.3, 0.7)
-        b = CredalInterval(0.5, 0.9)
+        a = CI(0.3, 0.7)
+        b = CI(0.5, 0.9)
         result = a.intersect(b)
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result.lower, 0.5)
         self.assertAlmostEqual(result.upper, 0.7)
 
     def test_intersect_disjoint_returns_none(self):
-        a = CredalInterval(0.1, 0.3)
-        b = CredalInterval(0.5, 0.9)
+        a = CI(0.1, 0.3)
+        b = CI(0.5, 0.9)
         self.assertIsNone(a.intersect(b))
 
     def test_intersect_touching_returns_point(self):
-        a = CredalInterval(0.0, 0.5)
-        b = CredalInterval(0.5, 1.0)
+        a = CI(0.0, 0.5)
+        b = CI(0.5, 1.0)
         result = a.intersect(b)
         self.assertIsNotNone(result)
         self.assertAlmostEqual(result.width, 0.0, places=5)
 
     def test_contains(self):
-        ci = CredalInterval(0.3, 0.7)
+        ci = CI(0.3, 0.7)
         self.assertTrue(ci.contains(0.5))
         self.assertFalse(ci.contains(0.8))
         self.assertFalse(ci.contains(0.1))
 
     def test_repr(self):
-        ci = CredalInterval(0.1, 0.9)
+        ci = CI(0.1, 0.9)
         self.assertIn("0.1000", repr(ci))
         self.assertIn("0.9000", repr(ci))
 
@@ -190,7 +190,7 @@ class TestAggregateIndependentFix(unittest.TestCase):
         self.engine = CredalInconsistencyEngine(aggregation="independent")
 
     def test_lower_le_upper_two_items(self):
-        pairwise = [CredalInterval(0.1, 0.4), CredalInterval(0.2, 0.6)]
+        pairwise = [CI(0.1, 0.4), CI(0.2, 0.6)]
         result = self.engine._aggregate_independent(pairwise)
         self.assertLessEqual(
             result.lower, result.upper,
@@ -199,7 +199,7 @@ class TestAggregateIndependentFix(unittest.TestCase):
 
     def test_lower_le_upper_many_items(self):
         pairwise = [
-            CredalInterval(lo, lo + 0.2)
+            CI(lo, lo + 0.2)
             for lo in np.linspace(0.0, 0.7, 10)
         ]
         result = self.engine._aggregate_independent(pairwise)
@@ -207,22 +207,22 @@ class TestAggregateIndependentFix(unittest.TestCase):
 
     def test_monotone_in_individual_bounds(self):
         """More inconsistency in each pair → higher aggregate."""
-        low_pair  = [CredalInterval(0.05, 0.15), CredalInterval(0.05, 0.15)]
-        high_pair = [CredalInterval(0.4,  0.7),  CredalInterval(0.4,  0.7)]
+        low_pair  = [CI(0.05, 0.15), CI(0.05, 0.15)]
+        high_pair = [CI(0.4,  0.7),  CI(0.4,  0.7)]
         r_low  = self.engine._aggregate_independent(low_pair)
         r_high = self.engine._aggregate_independent(high_pair)
         self.assertLess(r_low.midpoint, r_high.midpoint)
 
     def test_zero_inconsistency_stays_zero(self):
         """If all pairs have l=u=0, aggregate must be [0,0]."""
-        pairwise = [CredalInterval(0.0, 0.0)] * 5
+        pairwise = [CI(0.0, 0.0)] * 5
         result = self.engine._aggregate_independent(pairwise)
         self.assertAlmostEqual(result.lower, 0.0, places=6)
         self.assertAlmostEqual(result.upper, 0.0, places=6)
 
     def test_max_inconsistency_stays_one(self):
         """If all pairs have l=u=1, aggregate must be [1,1]."""
-        pairwise = [CredalInterval(1.0, 1.0)] * 3
+        pairwise = [CI(1.0, 1.0)] * 3
         result = self.engine._aggregate_independent(pairwise)
         self.assertAlmostEqual(result.lower, 1.0, places=5)
         self.assertAlmostEqual(result.upper, 1.0, places=5)
@@ -233,7 +233,7 @@ class TestAggregateIndependentFix(unittest.TestCase):
             L = 1 - (1-0.2)(1-0.3) = 1 - 0.8*0.7 = 1 - 0.56 = 0.44
             U = 1 - (1-0.5)(1-0.6) = 1 - 0.5*0.4 = 1 - 0.20 = 0.80
         """
-        pairwise = [CredalInterval(0.2, 0.5), CredalInterval(0.3, 0.6)]
+        pairwise = [CI(0.2, 0.5), CI(0.3, 0.6)]
         result = self.engine._aggregate_independent(pairwise)
         self.assertAlmostEqual(result.lower, 0.44, places=5)
         self.assertAlmostEqual(result.upper, 0.80, places=5)
@@ -244,7 +244,7 @@ class TestAggregateIndependentFix(unittest.TestCase):
         self.assertAlmostEqual(result.upper, 0.0)
 
     def test_single_item_passthrough(self):
-        ci = CredalInterval(0.3, 0.7)
+        ci = CI(0.3, 0.7)
         result = self.engine._aggregate_independent([ci])
         # L = 1-(1-0.3) = 0.3,  U = 1-(1-0.7) = 0.7
         self.assertAlmostEqual(result.lower, 0.3, places=5)

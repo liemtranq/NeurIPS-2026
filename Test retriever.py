@@ -72,7 +72,7 @@ fake_transformers.AutoModelForCausalLM = _FakeModel
 sys.modules["transformers"] = fake_transformers
 
 # Now import our module
-from hybrid_retriever import (
+from component1_retriever import (
     RetrieverConfig,
     RetrieverConfig,
     HopComplexityPredictor,

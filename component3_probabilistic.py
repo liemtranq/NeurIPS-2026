@@ -53,6 +53,64 @@ logger = logging.getLogger(__name__)
 # Section 1: Data Structures
 # ============================================================================
 
+@dataclass
+class CI:
+    """
+    A credal interval [lower, upper] representing imprecise probability.
+    """
+    lower: float
+    upper: float
+
+    def __post_init__(self) -> None:
+        lo = float(np.clip(self.lower, 0.0, 1.0))
+        hi = float(np.clip(self.upper, 0.0, 1.0))
+        # Defensive swap
+        self.lower = min(lo, hi)
+        self.upper = max(lo, hi)
+
+    @property
+    def midpoint(self) -> float:
+        return (self.lower + self.upper) / 2.0
+
+    @property
+    def width(self) -> float:
+        return self.upper - self.lower
+
+    @property
+    def is_precise(self) -> bool:
+        return self.width < 1e-6
+
+    # ==========================================================
+    # THE CALCULUS FIX: Optimized Intersection
+    # ==========================================================
+    def intersect(self, other: "CI", soft_margin: float = 0.0) -> "CI":
+        """
+        Tìm phần giao giữa hai khoảng tin cậy [L1, U1] và [L2, U2].
+        Đã nâng cấp thêm `soft_margin` để chống nhiễu loạn vi phân ở các biên sát nhau.
+        """
+        new_lower = max(self.lower, other.lower) - soft_margin
+        new_upper = min(self.upper, other.upper) + soft_margin
+        
+        # Nếu không giao nhau (Disjoint), trả về khoảng [0.0, 0.0] theo đúng Calculus Fix
+        if new_lower > new_upper:
+            return CI(0.0, 0.0) 
+            
+        return CI(new_lower, new_upper)
+
+    def __repr__(self) -> str:
+        return f"[{self.lower:.4f}, {self.upper:.4f}]"
+
+@dataclass
+class RetrievedEvidence:
+    """A single piece of retrieved evidence with confidence bounds."""
+    text:             str
+    source_id:        str
+    confidence:       CI   # Retrieval confidence as credal interval
+    relevance_score:  float            # Dense retrieval score
+    sparse_score:     float            # BM25 score
+    hop_depth:        int = 1          # Which hop this came from
+
+
 class InconsistencyType(Enum):
     """Categories of inconsistency detected between retrieval and proof."""
     NONE        = "none"
@@ -64,84 +122,12 @@ class InconsistencyType(Enum):
 
 
 @dataclass
-class CredalInterval:
-    """
-    A credal interval [lower, upper] representing imprecise probability.
-
-    Inspired by LCN (Marinescu et al., 2022): instead of a single P(q),
-    we maintain bounds  l_q ≤ P(q) ≤ u_q.
-
-    Invariant (enforced in __post_init__):
-        0 ≤ lower ≤ upper ≤ 1
-    """
-    lower: float
-    upper: float
-
-    def __post_init__(self) -> None:
-        lo = float(np.clip(self.lower, 0.0, 1.0))
-        hi = float(np.clip(self.upper, 0.0, 1.0))
-        # Defensive swap so callers never get an inverted interval
-        self.lower = min(lo, hi)
-        self.upper = max(lo, hi)
-
-    # ------------------------------------------------------------------
-    # Derived properties
-    # ------------------------------------------------------------------
-
-    @property
-    def midpoint(self) -> float:
-        return (self.lower + self.upper) / 2.0
-
-    @property
-    def width(self) -> float:
-        """Epistemic uncertainty — wider means less certain."""
-        return self.upper - self.lower
-
-    @property
-    def is_precise(self) -> bool:
-        return self.width < 1e-6
-
-    # ------------------------------------------------------------------
-    # Interval algebra
-    # ------------------------------------------------------------------
-
-    def intersect(self, other: "CredalInterval") -> Optional["CredalInterval"]:
-        """
-        Intersection of two credal intervals.
-        Returns None if the intervals are disjoint (empty intersection),
-        which is a hard inconsistency signal.
-        """
-        lo = max(self.lower, other.lower)
-        hi = min(self.upper, other.upper)
-        if lo > hi + 1e-9:
-            return None            # Disjoint → definite inconsistency
-        return CredalInterval(lo, hi)
-
-    def contains(self, value: float) -> bool:
-        return self.lower - 1e-9 <= value <= self.upper + 1e-9
-
-    def __repr__(self) -> str:
-        return f"[{self.lower:.4f}, {self.upper:.4f}]"
-
-
-@dataclass
-class RetrievedEvidence:
-    """A single piece of retrieved evidence with confidence bounds."""
-    text:             str
-    source_id:        str
-    confidence:       CredalInterval   # Retrieval confidence as credal interval
-    relevance_score:  float            # Dense retrieval score
-    sparse_score:     float            # BM25 score
-    hop_depth:        int = 1          # Which hop this came from
-
-
-@dataclass
 class SymbolicProofStep:
     """A single step in the symbolic proof chain (from Component 2)."""
     rule_name:  str
     premises:   List[str]
     conclusion: str
-    confidence: CredalInterval
+    confidence: CI
     step_index: int = 0
 
 
@@ -152,7 +138,7 @@ class InconsistencySignal:
     signal.  This is what gets passed to Component 4 (Bandit Mutation Engine).
     """
     # Credal inconsistency interval — replaces scalar I(R,P)
-    credal_inconsistency: CredalInterval
+    credal_inconsistency: CI
 
     # Metacognitive signal from LLM hidden states (Ji-An et al.)
     i_meta: float
@@ -161,7 +147,7 @@ class InconsistencySignal:
     combined_score: float
 
     # Breakdown by inconsistency type
-    type_scores: Dict[InconsistencyType, CredalInterval] = field(
+    type_scores: Dict[InconsistencyType, CI] = field(
         default_factory=dict
     )
 
@@ -206,49 +192,60 @@ class CredalInconsistencyEngine:
     # Pairwise inconsistency
     # ------------------------------------------------------------------
 
-    def compute_pairwise_inconsistency(
-        self,
-        evidence:   RetrievedEvidence,
-        proof_step: SymbolicProofStep,
-    ) -> CredalInterval:
-        """
-        Compute credal inconsistency between one evidence piece and one
-        proof step.
+    def compute_pairwise_inconsistency(self, evidence, proof_step):
+        # Ép kiểu lại cho chắc chắn
+        if not hasattr(evidence.confidence, 'intersect'):
+            from dataclasses import asdict
+            old_val = evidence.confidence
+            # Re-initialize as the NEW CI class
+            evidence.confidence = CI(lower=old_val.lower, upper=old_val.upper)
 
-        Following LCN semantics:
-          - Disjoint credal sets → definite inconsistency.
-            L_inc = gap between intervals (minimum possible inconsistency).
-            U_inc = full span of union  (maximum possible inconsistency).
-          - Overlapping credal sets → partial inconsistency.
-            L_inc = 0   (consistent assignment exists).
-            U_inc = 1 - overlap_width / max_width.
-        """
         e = evidence.confidence
-        p = proof_step.confidence
-        intersection = e.intersect(p)
+        p_raw = getattr(proof_step, 'confidence', 0.9) # Base fallback confidence
 
-        if intersection is None:
-            # Disjoint intervals → hard inconsistency
-            gap  = max(0.0, e.lower - p.upper, p.lower - e.upper)
-            span = max(e.upper, p.upper) - min(e.lower, p.lower)
-            return CredalInterval(
-                lower=min(1.0, gap),
-                upper=min(1.0, max(gap, span)),   # U ≥ L always
+        # ==========================================================
+        # THE CALCULUS FIX (SOTA Upgrade)
+        # Đảm bảo p luôn là một CI. Nếu là float, bọc nó lại.
+        # ==========================================================
+        if not isinstance(p_raw, CI):
+            # Dynamic Margin: Phạt độ bất định dựa trên độ sâu của chuỗi logic
+            # Thay vì hardcode 0.05, bước càng sâu, khoảng tin cậy càng mờ (fuzzy).
+            depth_penalty = getattr(proof_step, 'step_index', 0) * 0.015
+            margin = 0.05 + depth_penalty
+            
+            p = CI(
+                lower=p_raw - margin, 
+                upper=p_raw + margin
             )
         else:
-            # Partial inconsistency from non-overlapping mass
+            p = p_raw
+
+        # Thực hiện phép toán giao (đã đảm bảo an toàn về Type)
+        intersection = e.intersect(p)
+
+        # Xử lý Logic Disjoint (Kế thừa từ thuật toán cũ nhưng map với CI(0,0) mới)
+        if intersection.width == 0.0 and intersection.upper == 0.0:
+            # Khởi tạo khoảng Disjoint hoàn toàn (Hard Inconsistency)
+            gap  = max(0.0, e.lower - p.upper, p.lower - e.upper)
+            span = max(e.upper, p.upper) - min(e.lower, p.lower)
+            return CI(
+                lower=min(1.0, gap),
+                upper=min(1.0, max(gap, span)), 
+            )
+        else:
+            # Giao nhau một phần (Partial Inconsistency)
             total_width   = max(e.width, p.width, self.epsilon)
             overlap_width = intersection.width
             u_inc = float(np.clip(1.0 - overlap_width / total_width, 0.0, 1.0))
-            return CredalInterval(lower=0.0, upper=u_inc)
+            return CI(lower=0.0, upper=u_inc)
 
     # ------------------------------------------------------------------
     # Aggregation helpers
     # ------------------------------------------------------------------
 
     def _aggregate_independent(
-        self, pairwise: List[CredalInterval]
-    ) -> CredalInterval:
+        self, pairwise: List[CI]
+    ) -> CI:
         """
         Aggregate assuming independence between evidence–proof pairs.
 
@@ -264,7 +261,7 @@ class CredalInconsistencyEngine:
         FIX-1: original code had prod_lower/prod_upper swapped.
         """
         if not pairwise:
-            return CredalInterval(0.0, 0.0)
+            return CI(0.0, 0.0)
 
         # Product of (1 - u_i): optimistic complement → gives L_agg
         prod_opt = 1.0
@@ -276,28 +273,28 @@ class CredalInconsistencyEngine:
 
         l_agg = float(np.clip(1.0 - prod_pes, 0.0, 1.0))
         u_agg = float(np.clip(1.0 - prod_opt, 0.0, 1.0))
-        return CredalInterval(lower=l_agg, upper=u_agg)
+        return CI(lower=l_agg, upper=u_agg)
 
     def _aggregate_worst_case(
-        self, pairwise: List[CredalInterval]
-    ) -> CredalInterval:
+        self, pairwise: List[CI]
+    ) -> CI:
         """
         Worst-case (no independence assumption):
             L = min(l_i),  U = max(u_i).
         Conservative but never wrong.
         """
         if not pairwise:
-            return CredalInterval(0.0, 0.0)
-        return CredalInterval(
+            return CI(0.0, 0.0)
+        return CI(
             lower=min(ci.lower for ci in pairwise),
             upper=max(ci.upper for ci in pairwise),
         )
 
     def _aggregate_markov(
         self,
-        pairwise:    List[CredalInterval],
+        pairwise:    List[CI],
         proof_steps: List[SymbolicProofStep],
-    ) -> CredalInterval:
+    ) -> CI:
         """
         Aggregate using a generalized Markov condition over the proof DAG.
 
@@ -309,10 +306,10 @@ class CredalInconsistencyEngine:
         Across depth layers      → independent (steps are causally separated).
         """
         if not pairwise:
-            return CredalInterval(0.0, 0.0)
+            return CI(0.0, 0.0)
 
         # Group by step_index (proxy for DAG depth layer)
-        depth_groups: Dict[int, List[CredalInterval]] = {}
+        depth_groups: Dict[int, List[CI]] = {}
         for ci, step in zip(pairwise, proof_steps):
             depth_groups.setdefault(step.step_index, []).append(ci)
 
@@ -333,7 +330,7 @@ class CredalInconsistencyEngine:
         self,
         evidence_set: List[RetrievedEvidence],
         proof_chain:  List[SymbolicProofStep],
-    ) -> Tuple[CredalInterval, Dict[InconsistencyType, CredalInterval]]:
+    ) -> Tuple[CI, Dict[InconsistencyType, CI]]:
         """
         Compute overall credal inconsistency interval + per-type breakdown.
 
@@ -345,18 +342,19 @@ class CredalInconsistencyEngine:
             (overall_interval, per_type_breakdown)
         """
         if not evidence_set or not proof_chain:
-            return CredalInterval(0.0, 0.0), {}
+            return CI(0.0, 0.0), {}
 
         # Pairwise inconsistencies + type classification
-        pairwise_all: List[CredalInterval] = []
-        type_buckets: Dict[InconsistencyType, List[CredalInterval]] = {
+        pairwise_all: List[CI] = []
+        type_buckets: Dict[InconsistencyType, List[CI]] = {
             t: [] for t in InconsistencyType if t != InconsistencyType.NONE
         }
 
         for evidence in evidence_set:
             for step in proof_chain:
                 ci       = self.compute_pairwise_inconsistency(evidence, step)
-                inc_type = self._classify_type(step.rule_name)
+                rule_name = getattr(step, 'rule_name', "UNKNOWN")
+                inc_type = self._classify_type(rule_name)
                 pairwise_all.append(ci)
                 if inc_type != InconsistencyType.NONE:
                     type_buckets[inc_type].append(ci)
@@ -372,7 +370,7 @@ class CredalInconsistencyEngine:
             overall = self._aggregate_worst_case(pairwise_all)
 
         # Per-type breakdown (independent aggregation within each type)
-        type_scores: Dict[InconsistencyType, CredalInterval] = {
+        type_scores: Dict[InconsistencyType, CI] = {
             t: self._aggregate_independent(cis)
             for t, cis in type_buckets.items()
             if cis
@@ -801,7 +799,7 @@ class ProbabilisticInconsistencySignal:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _adaptive_alpha(self, credal_ci: CredalInterval) -> float:
+    def _adaptive_alpha(self, credal_ci: CI) -> float:
         """
         α = α_base × (1 - width),  clamped to [alpha_min, alpha_max].
 
@@ -919,7 +917,7 @@ class ProbabilisticInconsistencySignal:
                     i_meta_values[idx] = float(i_meta_tensor[idx].item())
 
         # --- CPU path: credal computation in parallel ---
-        credal_results: List[Tuple[CredalInterval, Dict]] = [None] * n  # type: ignore
+        credal_results: List[Tuple[CI, Dict]] = [None] * n  # type: ignore
 
         def _compute_credal(idx: int):
             return idx, self.credal_engine.compute(
@@ -1204,3 +1202,7 @@ class ProbabilisticInconsistencySignal:
                 "trigger_full_reset": force_reset
             }
         )
+    def compute_tensor_credal_width(self, tensor_data):
+            if isinstance(tensor_data, torch.Tensor):
+                return (tensor_data.max() - tensor_data.min()).item()
+            return 0.0 

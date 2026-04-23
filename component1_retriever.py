@@ -22,17 +22,20 @@ logger = logging.getLogger("mc_nsr.active_reasoner")
 
 @dataclass
 class ActiveReasonerConfig:
-    llm_model_name: str = "meta-llama/Llama-3.1-70B"
-    llm_dtype: torch.dtype = torch.float8_e4m3fn  
+    model_name: str = "meta-llama/Llama-3.1-8B"
+    llm_model_name: str = "meta-llama/Llama-3.1-8B"  # FIX: alias để tránh AttributeError
+    llm_dtype: torch.dtype = torch.float8_e4m3fn
     use_flash_attention: bool = True
     max_seq_len: int = 4096
+    hidden_size: int = 4096        # Mặc định của Llama 3 8B — chiều ra của LLM backbone
+    projection_dim: int = 128      # ColBERT nén từ 4096 -> 128 chiều để so sánh vector hiệu quả
     token_dim: int = 128
     top_k_doc: int = 50
     top_k_chunk: int = 20
     top_k_final: int = 5
     max_iterations: int = 3
     credal_width_threshold: float = 0.2
-    device: str = "cuda"
+    device: str = "cuda"  # ROCm của AMD MI300X expose qua "cuda" interface — giữ nguyên
 
 
 class MultiSourceRetriever:
@@ -67,12 +70,13 @@ class LateInteractionEncoder(nn.Module):
         self.cfg = cfg
         attn_impl = "flash_attention_2" if cfg.use_flash_attention else "eager"
         self.model = AutoModel.from_pretrained(
-            cfg.llm_model_name,
-            torch_dtype=cfg.llm_dtype,
+            cfg.model_name,
+            torch_dtype=torch.bfloat16,  # bfloat16 cực hợp với AMD MI300X
             device_map="auto",
-            attn_implementation=attn_impl
+            trust_remote_code=True
         )
         self.linear_compress = nn.Linear(self.model.config.hidden_size, cfg.token_dim, dtype=torch.bfloat16)
+        self.linear_compress.to(cfg.device)  # Ép linear_compress lên GPU — tránh device mismatch với Llama
         self.model = torch.compile(self.model)
 
     def forward(self, input_ids, attention_mask) -> torch.Tensor:
@@ -120,9 +124,9 @@ class ActiveReasonerRetriever:
     def __init__(self, cfg: ActiveReasonerConfig):
         self.cfg = cfg
         self.index = []
-        self.encoder = LateInteractionEncoder(cfg)
+        self.encoder = LateInteractionEncoder(cfg).to(cfg.device)  # Đảm bảo toàn bộ encoder lên GPU
         self.reranker = NeuroSymbolicReranker(cfg.token_dim).to(cfg.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model_name)  # dùng llm_model_name
         logger.info("Active Reasoner initialized with FP8, FA3, and ColBERT-v4 paradigm.")
 
     def decompose_query(self, query: str, memory: MemoryBuffer) -> List[str]:
@@ -135,12 +139,12 @@ class ActiveReasonerRetriever:
         with torch.no_grad():
             q_embs = self.encoder(q_enc.input_ids, q_enc.attention_mask)
         N_chunks = 1000
-        mock_d_embs = torch.randn(N_chunks, 64, self.cfg.token_dim, device=self.cfg.device)
+        mock_d_embs = torch.randn(N_chunks, 64, self.cfg.projection_dim, device=self.cfg.device, dtype=torch.bfloat16)
         scores = self.encoder.maxsim(q_embs, mock_d_embs, q_enc.attention_mask)
         top_ids = scores[0].topk(self.cfg.top_k_chunk).indices.tolist()
         return top_ids
 
-    def retrieve(self, initial_query: str, credal_width: float = 0.0) -> Dict[str, Any]:
+    def retrieve(self, initial_query: str, credal_width: float = 0.0, top_k: Optional[int] = None, negative_constraint: bool = False) -> Dict[str, Any]:
         memory = MemoryBuffer()
         current_queries = [initial_query]
         final_results = []
@@ -165,7 +169,12 @@ class ActiveReasonerRetriever:
             "final_credal_width": credal_width
         }
 
-# Ép Python hiểu rằng MultiSourceRetriever chính là cái Class có hàm retrieve
+    def retrieve_with_negative_constraint(self, existing_evidence: Any) -> Any:
+        """Tìm kiếm hướng ngược lại với evidence hiện tại (dùng cho Deep-Dive recovery)."""
+        logger.info("Retrieving with negative constraint against existing evidence...")
+        return self.retrieve(f"NOT {str(existing_evidence)}", credal_width=0.0)
+
+
 # (Giả sử Class chứa hàm retrieve đó tên là ActiveReasonerRetriever)
 MultiSourceRetriever = ActiveReasonerRetriever
 
