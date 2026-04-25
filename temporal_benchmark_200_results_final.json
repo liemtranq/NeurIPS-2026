@@ -1,0 +1,1609 @@
+{
+  "accuracy": 1.0,
+  "total": 200,
+  "correct": 200,
+  "false_positives": 0,
+  "false_negatives": 0,
+  "results": [
+    {
+      "id": "inv_bad_01",
+      "question": "How could a smartphone exist in 1990 if it was invented in 2007?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_02",
+      "question": "If the internet was invented in 1983, how could someone browse the web in 1975?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_03",
+      "question": "How could a Tesla electric car exist in 1980 if Tesla Motors was founded in 2003?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_04",
+      "question": "If the airplane was invented in 1903, how could a pilot fly one in 1895?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_05",
+      "question": "How could someone use a microwave oven in 1940 if it was invented in 1945?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_06",
+      "question": "If GPS technology became available in 1995, how could a device use GPS navigation in 1988?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_07",
+      "question": "How could a person use a USB flash drive in 1992 if it was invented in 2000?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_08",
+      "question": "If the World Wide Web was invented in 1991, how could a website exist in 1985?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_09",
+      "question": "How could someone watch a Blu-ray disc in 1998 if the format was introduced in 2006?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_10",
+      "question": "If the first commercial jet airliner debuted in 1952, how could passengers fly on one in 1945?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_11",
+      "question": "How could a laptop computer exist in 1965 if the first portable computer was made in 1981?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_12",
+      "question": "If penicillin was discovered in 1928, how could a doctor prescribe it in 1920?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_13",
+      "question": "How could a person stream music on Spotify in 2005 if Spotify launched in 2008?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_14",
+      "question": "If nuclear power plants first operated in 1954, how could a city be powered by one in 1940?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_15",
+      "question": "How could a soldier use a nuclear bomb in 1940 if the first nuclear weapon was tested in 1945?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_16",
+      "question": "If the first iPhone was released in 2007, how could someone own one in 2003?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_17",
+      "question": "How could a researcher use CRISPR gene editing in 2005 if the technology was developed in 2012?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_18",
+      "question": "If 3D printing was invented in 1984, how could a factory use one in 1975?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_19",
+      "question": "How could a patient receive an MRI scan in 1960 if MRI machines were first used clinically in 1977?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_bad_20",
+      "question": "If the first video game console was released in 1972, how could a child play on one in 1965?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_01",
+      "question": "If the Eiffel Tower was built in 1889, how could a photograph of it exist in 1885?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_02",
+      "question": "How could a postcard of the Empire State Building exist in 1928 if it was completed in 1931?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_03",
+      "question": "If the Golden Gate Bridge opened in 1937, how could a photo of cars crossing it exist from 1930?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_04",
+      "question": "How could a tourist photo of the Sydney Opera House exist in 1960 if it opened in 1973?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_05",
+      "question": "If the Burj Khalifa was completed in 2010, how could a 2005 photo show it fully built?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_06",
+      "question": "How could a photo of the Berlin Wall exist in 1956 if it was constructed in 1961?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_07",
+      "question": "If the Statue of Liberty was unveiled in 1886, how could an 1880 photograph show it standing?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_08",
+      "question": "How could a 1990 photo show the Channel Tunnel if it opened in 1994?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_09",
+      "question": "If the Colosseum was completed around 80 AD, how could a Roman author describe visiting it in 70 AD?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_10",
+      "question": "How could a painting of the Sagrada Família completed tower exist in 1900 if construction is still ongoing?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_11",
+      "question": "If the Panama Canal opened in 1914, how could a 1910 photo show ships sailing through it?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_12",
+      "question": "How could a 1945 photo show the United Nations headquarters in New York if it was built in 1952?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_13",
+      "question": "If the Petronas Towers were completed in 1998, how could a 1993 postcard show them towering over Kuala Lumpur?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_14",
+      "question": "How could a photograph of the Millau Viaduct exist in 1998 if it opened in 2004?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_15",
+      "question": "If the Great Wall of China's Ming-era sections were built in the 1400s, how could a 1300s map show the completed modern structure?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_16",
+      "question": "How could a photo of the completed Hoover Dam exist in 1930 if it was finished in 1936?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_17",
+      "question": "If the Louvre Pyramid was built in 1989, how could a 1980 travel photo show it in the courtyard?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_18",
+      "question": "How could a 1960 photograph show the completed Space Needle if it was built for the 1962 World's Fair?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_19",
+      "question": "If the Taj Mahal was completed in 1653, how could a 1640 painting depict the finished monument?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_bad_20",
+      "question": "How could a photo of the completed One World Trade Center exist in 2010 if it opened in 2014?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_01",
+      "question": "How could a company founded in 2004 have signed a contract in 1999?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_02",
+      "question": "If Google was founded in 1998, how could it have filed a patent in 1993?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_03",
+      "question": "How could Facebook, founded in 2004, have run advertisements in 2001?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_04",
+      "question": "If Apple was incorporated in 1977, how could it have sold a Macintosh in 1975?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_05",
+      "question": "How could Amazon, founded in 1994, have delivered a package in 1990?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_06",
+      "question": "If Tesla Motors was founded in 2003, how could it have released a car model in 1998?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_07",
+      "question": "How could a startup founded in 2010 have won a business award in 2005?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_08",
+      "question": "If the United Nations was founded in 1945, how could it have passed a resolution in 1940?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_09",
+      "question": "How could a bank established in 2000 have issued a loan in 1995?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_10",
+      "question": "If Twitter was founded in 2006, how could a politician have tweeted in 2003?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_11",
+      "question": "How could a university founded in 1990 have awarded a degree in 1985?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_12",
+      "question": "If Airbnb was founded in 2008, how could a traveler have booked a stay through it in 2005?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_13",
+      "question": "How could Uber, founded in 2009, have provided a ride in 2006?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_14",
+      "question": "If Netflix was founded in 1997, how could a customer have streamed a movie through it in 1995?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_15",
+      "question": "How could a nonprofit organization founded in 2015 have received donations in 2010?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_16",
+      "question": "If the European Union was established in 1993, how could a country have joined it in 1988?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_17",
+      "question": "How could a hospital founded in 2001 have treated patients in 1998?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_18",
+      "question": "If Instagram was founded in 2010, how could a brand have posted photos on it in 2008?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_19",
+      "question": "How could a law firm established in 2005 have represented a client in a 2000 case?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_bad_20",
+      "question": "If SpaceX was founded in 2002, how could it have launched a rocket in 1999?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_01",
+      "question": "How could a movie released in 2015 win an award in 2010?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_02",
+      "question": "If an album was released in 2018, how could it have won a Grammy in 2015?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_03",
+      "question": "How could a video game released in 2020 have received a best-of-year award in 2017?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_04",
+      "question": "If a novel was published in 2019, how could it have won the Booker Prize in 2016?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_05",
+      "question": "How could a TV show that premiered in 2021 have won an Emmy in 2018?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_06",
+      "question": "If a film was shot and released in 2022, how could a critic have reviewed it in 2019?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_07",
+      "question": "How could a song released in 2016 top a 2013 music chart?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_08",
+      "question": "If a product launched in 2023, how could a consumer have purchased it in 2020?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_09",
+      "question": "How could a book published in 2017 have been cited in a 2014 academic paper?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_10",
+      "question": "If a software version was released in 2021, how could a user have installed it in 2018?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_11",
+      "question": "How could a podcast launched in 2019 have an episode from 2015?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_12",
+      "question": "If a vaccine was approved in 2021, how could a doctor have administered it in 2018?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_13",
+      "question": "How could a sports car model released in 2022 have competed in a 2019 race?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_14",
+      "question": "If a fashion line debuted in 2020, how could a magazine have featured it in 2016?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_15",
+      "question": "How could a documentary released in 2023 have screened at a 2019 film festival?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_16",
+      "question": "If a research paper was published in 2022, how could it have been retracted in 2020?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_17",
+      "question": "How could an app released in 2018 have had a million downloads by 2015?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_18",
+      "question": "If a comic series launched in 2017, how could a collector have owned issue #50 in 2014?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_19",
+      "question": "How could a museum exhibit that opened in 2024 have been reviewed in 2021?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_bad_20",
+      "question": "If a satellite was launched in 2019, how could scientists have received data from it in 2016?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_01",
+      "question": "If a theme park opened in 2001, how could a family have visited it in 1998?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_02",
+      "question": "How could a restaurant that opened in 2010 have served customers in 2007?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_03",
+      "question": "If an airport opened in 2015, how could a flight have landed there in 2011?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_04",
+      "question": "How could a subway line that opened in 2018 have carried passengers in 2014?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_05",
+      "question": "If a shopping mall opened in 2005, how could shoppers have browsed its stores in 2001?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_06",
+      "question": "How could a sports stadium that opened in 2016 have hosted a match in 2012?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_07",
+      "question": "If a museum opened in 2008, how could students have visited its galleries in 2004?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_08",
+      "question": "How could a hotel that opened in 2020 have hosted a conference in 2017?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_09",
+      "question": "If a highway opened in 2013, how could trucks have driven on it in 2009?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_10",
+      "question": "How could a casino that opened in 2007 have held a poker tournament in 2003?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_11",
+      "question": "If an opera house opened in 1973, how could a performance have taken place there in 1969?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_12",
+      "question": "How could a school that opened in 2002 have graduated its first class in 1999?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_13",
+      "question": "If a library opened in 2011, how could a reader have borrowed books from it in 2007?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_14",
+      "question": "How could a science center that opened in 2019 have hosted an expo in 2015?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_15",
+      "question": "If a national park was designated in 1980, how could rangers have patrolled it in 1975?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_16",
+      "question": "How could a concert venue that opened in 2014 have held a rock concert in 2010?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_17",
+      "question": "If a bridge opened in 2003, how could pedestrians have walked across it in 1999?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_18",
+      "question": "How could a theme park ride that opened in 2017 have been ridden by guests in 2013?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_19",
+      "question": "If a university campus opened in 2006, how could students have attended classes there in 2002?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_bad_20",
+      "question": "How could a transit hub that opened in 2022 have handled commuters in 2018?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_01",
+      "question": "Could a smartphone invented in 2007 exist in 2010?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_02",
+      "question": "If the internet was invented in 1983, could someone browse the web in 1995?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_03",
+      "question": "Could a Tesla electric car founded in 2003 exist on the road by 2010?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_04",
+      "question": "If the airplane was invented in 1903, could a pilot fly one in 1910?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_05",
+      "question": "Could someone use a microwave oven in 1960 if it was invented in 1945?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_06",
+      "question": "If GPS technology became available in 1995, could a device use GPS navigation in 2000?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_07",
+      "question": "Could a person use a USB flash drive in 2005 if it was invented in 2000?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_08",
+      "question": "If the World Wide Web was invented in 1991, could a website exist in 1995?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_09",
+      "question": "Could someone watch a Blu-ray disc in 2010 if the format was introduced in 2006?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_10",
+      "question": "If the first commercial jet airliner debuted in 1952, could passengers fly on one in 1960?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_11",
+      "question": "Could a laptop computer exist in 1990 if the first portable computer was made in 1981?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_12",
+      "question": "If penicillin was discovered in 1928, could a doctor prescribe it in 1935?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_13",
+      "question": "Could a person stream music on Spotify in 2012 if Spotify launched in 2008?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_14",
+      "question": "If nuclear power plants first operated in 1954, could a city be powered by one in 1970?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_15",
+      "question": "Could a soldier use a nuclear weapon in 1950 if the first was tested in 1945?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_16",
+      "question": "If the first iPhone was released in 2007, could someone own one in 2009?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_17",
+      "question": "Could a researcher use CRISPR gene editing in 2015 if the technology was developed in 2012?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_18",
+      "question": "If 3D printing was invented in 1984, could a factory use one in 1995?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_19",
+      "question": "Could a patient receive an MRI scan in 1985 if MRI machines were first used clinically in 1977?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "inv_ok_20",
+      "question": "If the first video game console was released in 1972, could a child play on one in 1975?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_01",
+      "question": "If the Eiffel Tower was built in 1889, could a photograph of it exist in 1890?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_02",
+      "question": "Could a postcard of the Empire State Building exist in 1935 if it was completed in 1931?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_03",
+      "question": "If the Golden Gate Bridge opened in 1937, could a photo of cars crossing it exist from 1940?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_04",
+      "question": "Could a tourist photo of the Sydney Opera House exist in 1980 if it opened in 1973?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_05",
+      "question": "If the Burj Khalifa was completed in 2010, could a 2015 photo show it fully built?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_06",
+      "question": "Could a photo of the Berlin Wall exist in 1970 if it was constructed in 1961?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_07",
+      "question": "If the Statue of Liberty was unveiled in 1886, could an 1895 photograph show it standing?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_08",
+      "question": "Could a 2000 photo show the Channel Tunnel if it opened in 1994?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_09",
+      "question": "If the Colosseum was completed around 80 AD, could a Roman author describe visiting it in 100 AD?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_10",
+      "question": "Could a photo of a partially built Sagrada Família tower exist in 1900 when construction was ongoing?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_11",
+      "question": "If the Panama Canal opened in 1914, could a 1920 photo show ships sailing through it?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_12",
+      "question": "Could a 1960 photo show the United Nations headquarters in New York if it was built in 1952?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_13",
+      "question": "If the Petronas Towers were completed in 1998, could a 2005 postcard show them towering over Kuala Lumpur?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_14",
+      "question": "Could a photograph of the Millau Viaduct exist in 2010 if it opened in 2004?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_15",
+      "question": "If the Great Wall of China's Ming-era sections were built in the 1400s, could a 1600s traveler have walked on them?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_16",
+      "question": "Could a photo of the completed Hoover Dam exist in 1940 if it was finished in 1936?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_17",
+      "question": "If the Louvre Pyramid was built in 1989, could a 1995 travel photo show it in the courtyard?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_18",
+      "question": "Could a 1965 photograph show the completed Space Needle if it was built in 1962?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_19",
+      "question": "If the Taj Mahal was completed in 1653, could a 1700 painting depict the finished monument?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "con_ok_20",
+      "question": "Could a photo of the completed One World Trade Center exist in 2016 if it opened in 2014?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_01",
+      "question": "Could a company founded in 2004 sign a contract in 2008?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_02",
+      "question": "If Google was founded in 1998, could it have filed a patent in 2002?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_03",
+      "question": "Could Facebook, founded in 2004, have run advertisements in 2007?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_04",
+      "question": "If Apple was incorporated in 1977, could it have sold a Macintosh in 1984?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_05",
+      "question": "Could Amazon, founded in 1994, have delivered a package in 1998?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_06",
+      "question": "If Tesla Motors was founded in 2003, could it have released a car model in 2008?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_07",
+      "question": "Could a startup founded in 2010 have won a business award in 2015?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_08",
+      "question": "If the United Nations was founded in 1945, could it have passed a resolution in 1950?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_09",
+      "question": "Could a bank established in 2000 have issued a loan in 2003?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_10",
+      "question": "If Twitter was founded in 2006, could a politician have tweeted in 2009?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_11",
+      "question": "Could a university founded in 1990 have awarded a degree in 1995?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_12",
+      "question": "If Airbnb was founded in 2008, could a traveler have booked a stay through it in 2012?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_13",
+      "question": "Could Uber, founded in 2009, have provided a ride in 2011?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_14",
+      "question": "If Netflix was founded in 1997, could a customer have streamed a movie through it in 2010?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_15",
+      "question": "Could a nonprofit organization founded in 2015 have received donations in 2018?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_16",
+      "question": "If the European Union was established in 1993, could a country have joined it in 2004?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_17",
+      "question": "Could a hospital founded in 2001 have treated patients in 2005?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_18",
+      "question": "If Instagram was founded in 2010, could a brand have posted photos on it in 2013?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_19",
+      "question": "Could a law firm established in 2005 have represented a client in a 2009 case?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "fnd_ok_20",
+      "question": "If SpaceX was founded in 2002, could it have launched a rocket in 2008?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_01",
+      "question": "Could a movie released in 2015 win an award in 2016?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_02",
+      "question": "If an album was released in 2018, could it have won a Grammy in 2019?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_03",
+      "question": "Could a video game released in 2020 have received a best-of-year award in 2021?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_04",
+      "question": "If a novel was published in 2019, could it have won the Booker Prize in 2020?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_05",
+      "question": "Could a TV show that premiered in 2021 have won an Emmy in 2022?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_06",
+      "question": "If a film was released in 2022, could a critic have reviewed it in 2023?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_07",
+      "question": "Could a song released in 2016 top a 2017 music chart?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_08",
+      "question": "If a product launched in 2023, could a consumer have purchased it in 2024?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_09",
+      "question": "Could a book published in 2017 have been cited in a 2020 academic paper?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_10",
+      "question": "If a software version was released in 2021, could a user have installed it in 2022?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_11",
+      "question": "Could a podcast launched in 2019 have an episode from 2021?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_12",
+      "question": "If a vaccine was approved in 2021, could a doctor have administered it in 2022?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_13",
+      "question": "Could a sports car model released in 2022 have competed in a 2023 race?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_14",
+      "question": "If a fashion line debuted in 2020, could a magazine have featured it in 2021?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_15",
+      "question": "Could a documentary released in 2023 have screened at a 2024 film festival?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_16",
+      "question": "If a research paper was published in 2022, could it have been cited in 2024?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_17",
+      "question": "Could an app released in 2018 have had a million downloads by 2020?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_18",
+      "question": "If a comic series launched in 2017, could a collector own issue #10 in 2019?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_19",
+      "question": "Could a museum exhibit that opened in 2024 have been reviewed in 2025?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "rel_ok_20",
+      "question": "If a satellite was launched in 2019, could scientists have received data from it in 2021?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_01",
+      "question": "If a theme park opened in 2001, could a family have visited it in 2003?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_02",
+      "question": "Could a restaurant that opened in 2010 have served customers in 2012?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_03",
+      "question": "If an airport opened in 2015, could a flight have landed there in 2017?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_04",
+      "question": "Could a subway line that opened in 2018 have carried passengers in 2020?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_05",
+      "question": "If a shopping mall opened in 2005, could shoppers have browsed its stores in 2008?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_06",
+      "question": "Could a sports stadium that opened in 2016 have hosted a match in 2018?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_07",
+      "question": "If a museum opened in 2008, could students have visited its galleries in 2011?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_08",
+      "question": "Could a hotel that opened in 2020 have hosted a conference in 2022?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_09",
+      "question": "If a highway opened in 2013, could trucks have driven on it in 2015?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_10",
+      "question": "Could a casino that opened in 2007 have held a poker tournament in 2010?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_11",
+      "question": "If an opera house opened in 1973, could a performance have taken place there in 1980?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_12",
+      "question": "Could a school that opened in 2002 have graduated its first class in 2006?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_13",
+      "question": "If a library opened in 2011, could a reader have borrowed books from it in 2013?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_14",
+      "question": "Could a science center that opened in 2019 have hosted an expo in 2021?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_15",
+      "question": "If a national park was designated in 1980, could rangers have patrolled it in 1985?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_16",
+      "question": "Could a concert venue that opened in 2014 have held a rock concert in 2016?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_17",
+      "question": "If a bridge opened in 2003, could pedestrians have walked across it in 2005?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_18",
+      "question": "Could a theme park ride that opened in 2017 have been ridden by guests in 2019?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_19",
+      "question": "If a university campus opened in 2006, could students have attended classes there in 2009?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    },
+    {
+      "id": "opn_ok_20",
+      "question": "Could a transit hub that opened in 2022 have handled commuters in 2024?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "score": 0.25
+    }
+  ]
+}

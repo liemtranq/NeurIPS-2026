@@ -1,0 +1,81 @@
+{
+  "final_proof": "ProofTrace(steps=[SymbolicProofStep(step_id='exec_step_1_4c24', step_index=1, rule_name='EVENT_CALC', premises=[], conclusion='TensorHash_1192', linked_evidence_ids=[], confidence=ConfidenceCI(lower=0.4286177895397323, upper=0.8095392631799108), status='proven', failure_type=None)], overall_confidence=ConfidenceCI(lower=0.4286177895397323, upper=0.8095392631799108))",
+  "best_node_id": "alt_002",
+  "global_score": 0.25,
+  "quality_score": 0.75,
+  "iterations": 4,
+  "latency_ms": 180.61518669128418,
+  "telemetry": {
+    "nodes_explored": 6
+  },
+  "pis_diagnosis": {
+    "failed_steps": [],
+    "dominant_failure": "none",
+    "replan_targets": [],
+    "mutation_priority": []
+  },
+  "trace_log": [
+    {
+      "iteration": 1,
+      "node_id": "init_000",
+      "score": 0.85,
+      "quality": 0.15000000000000002,
+      "trigger": true,
+      "dominant_error": "temporal",
+      "mutation_strategy": "evidence",
+      "replan_targets": [
+        "exec_step_1_9ec5"
+      ],
+      "mutation_priority": [
+        "exec_step_1_9ec5"
+      ],
+      "repair_hint": "Step 'exec_step_1_9ec5': temporal contradiction suspected between years 1990 and 2007. Replan: verify chronology and retrieve date-specific evidence.",
+      "errors": [
+        [
+          "exec_step_1_9ec5",
+          "temporal",
+          0.85
+        ]
+      ]
+    },
+    {
+      "iteration": 2,
+      "node_id": "init_001",
+      "score": 0.25,
+      "quality": 0.75,
+      "trigger": false,
+      "dominant_error": "none",
+      "mutation_strategy": "none",
+      "replan_targets": [],
+      "mutation_priority": [],
+      "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+      "errors": null
+    },
+    {
+      "iteration": 3,
+      "node_id": "replan_001",
+      "score": 0.25,
+      "quality": 0.75,
+      "trigger": false,
+      "dominant_error": "none",
+      "mutation_strategy": "none",
+      "replan_targets": [],
+      "mutation_priority": [],
+      "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+      "errors": null
+    },
+    {
+      "iteration": 4,
+      "node_id": "alt_002",
+      "score": 0.25,
+      "quality": 0.75,
+      "trigger": false,
+      "dominant_error": "none",
+      "mutation_strategy": "none",
+      "replan_targets": [],
+      "mutation_priority": [],
+      "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+      "errors": null
+    }
+  ]
+}

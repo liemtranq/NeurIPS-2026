@@ -1,39 +1,27 @@
 """
-Component 3 — Probabilistic Inconsistency Signal (PIS)
-=====================================================
+Component 3 — Step-level Credal-Neural Inconsistency Engine (PIS v2)
+=====================================================================
 NeurIPS 2026 Submission
 
-Novelty: Replace scalar inconsistency I(R,P) with credal interval [L, U]
-inspired by Logical Credal Networks (Marinescu et al., NeurIPS 2022),
-and add I_meta computed from LLM hidden states following the neurofeedback
-paradigm of Ji-An et al. (NeurIPS 2025).
+Architecture:
+  - Single ProbabilisticInconsistencySignal class (no duplicate definitions)
+  - Alignment-by-pointer: each proof step only compared to its linked evidence
+  - Step-level InconsistencySignal with per-step credal CI + neural uncertainty
+  - Uncertainty-weighted hidden-state pooling (entropy/logprob-weighted)
+  - Evidential Deep Learning (EDL/Dirichlet): p_inconsistent, epistemic,
+    aleatoric, evidence_strength per step
+  - Calibration layer (temperature scaling + isotonic regression) with
+    ECE / Brier / AUROC reporting
+  - diagnose_failure() → FACTUAL / TEMPORAL / CAUSAL / LOGICAL /
+    MISSING_PREMISE / INVALID_INFERENCE
+  - Output: global_score, step_scores, top_failed_steps, repair_hint
 
-This is the first integration of credal-interval inconsistency + LLM
-metacognitive signals in Neuro-Symbolic QA.
-
-Hardware target: AMD MI300X 192GB — Llama-3.1-70B full precision fits in 1x GPU.
-
-Fixes applied (vs. original draft):
-  FIX-1  _aggregate_independent: lower/upper bounds were swapped.
-          Correct derivation:
-            prod_complement_upper = ∏(1 - l_i)   [pessimistic complement]
-            prod_complement_lower = ∏(1 - u_i)   [optimistic complement]
-            L_agg = 1 - prod_complement_upper
-            U_agg = 1 - prod_complement_lower
-  FIX-2  LRAxisTrainer.collect_activations: hidden states not moved to CPU
-          before appending, causing VRAM accumulation with large datasets.
-  FIX-3  compute_batch: was sequential; now uses ThreadPoolExecutor to
-          parallelise credal computation across samples (CPU-bound).
-  FIX-4  _classify_type: extended to cover all 40 rule names from Component 2
-          (BRIDGE, PATH, SEQUENCE, SPAN, DIFF, RATIO, etc.).
-  FIX-5  ProbabilisticInconsistencySignal.compute: mutation_threshold exposed
-          via config so it can be tuned on dev set without editing source.
-  FIX-6  MetaCognitiveExtractor.train_lr_axes: moved model to eval() outside
-          the loop to avoid repeated mode switches; added weight_decay to Adam.
+Hardware target: AMD MI300X 192GB — Llama-3.1-70B full precision, 1x GPU.
 """
 
 from __future__ import annotations
 
+import re
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -45,18 +33,31 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Dirichlet
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Section 1: Data Structures
+# Section 1: Enumerations & Core Data Structures
 # ============================================================================
+
+class FailureType(Enum):
+    """Fine-grained failure taxonomy for proof steps."""
+    NONE              = "none"
+    FACTUAL           = "factual"           # Retrieved fact contradicts step conclusion
+    TEMPORAL          = "temporal"          # Temporal ordering violated
+    CAUSAL            = "causal"            # Causal chain broken
+    LOGICAL           = "logical"           # Pure logical contradiction
+    MISSING_PREMISE   = "missing_premise"   # A required premise has no evidence support
+    INVALID_INFERENCE = "invalid_inference" # Rule applied incorrectly given premises
+
 
 @dataclass
 class CI:
     """
-    A credal interval [lower, upper] representing imprecise probability.
+    Credal interval [lower, upper] — imprecise probability over inconsistency.
+    Defensive clamp + swap on init; all arithmetic stays in [0, 1].
     """
     lower: float
     upper: float
@@ -64,7 +65,6 @@ class CI:
     def __post_init__(self) -> None:
         lo = float(np.clip(self.lower, 0.0, 1.0))
         hi = float(np.clip(self.upper, 0.0, 1.0))
-        # Defensive swap
         self.lower = min(lo, hi)
         self.upper = max(lo, hi)
 
@@ -80,209 +80,175 @@ class CI:
     def is_precise(self) -> bool:
         return self.width < 1e-6
 
-    # ==========================================================
-    # THE CALCULUS FIX: Optimized Intersection
-    # ==========================================================
-    def intersect(self, other: "CI", soft_margin: float = 0.0) -> "CI":
+    def intersect(self, other: "CI") -> "CI":
         """
-        Tìm phần giao giữa hai khoảng tin cậy [L1, U1] và [L2, U2].
-        Đã nâng cấp thêm `soft_margin` để chống nhiễu loạn vi phân ở các biên sát nhau.
+        Intersection of two credal intervals.
+        Returns CI(0, 0) if disjoint (hard inconsistency).
         """
-        new_lower = max(self.lower, other.lower) - soft_margin
-        new_upper = min(self.upper, other.upper) + soft_margin
-        
-        # Nếu không giao nhau (Disjoint), trả về khoảng [0.0, 0.0] theo đúng Calculus Fix
+        new_lower = max(self.lower, other.lower)
+        new_upper = min(self.upper, other.upper)
         if new_lower > new_upper:
-            return CI(0.0, 0.0) 
-            
+            return CI(0.0, 0.0)
         return CI(new_lower, new_upper)
 
     def __repr__(self) -> str:
         return f"[{self.lower:.4f}, {self.upper:.4f}]"
 
+
 @dataclass
 class RetrievedEvidence:
-    """A single piece of retrieved evidence with confidence bounds."""
-    text:             str
-    source_id:        str
-    confidence:       CI   # Retrieval confidence as credal interval
-    relevance_score:  float            # Dense retrieval score
-    sparse_score:     float            # BM25 score
-    hop_depth:        int = 1          # Which hop this came from
-
-
-class InconsistencyType(Enum):
-    """Categories of inconsistency detected between retrieval and proof."""
-    NONE        = "none"
-    FACTUAL     = "factual"       # Retrieved fact contradicts symbolic proof
-    TEMPORAL    = "temporal"      # Temporal ordering violation
-    CAUSAL      = "causal"        # Causal chain break
-    COMPARATIVE = "comparative"   # Comparative relation mismatch
-    LOGICAL     = "logical"       # Pure logical contradiction
+    """A single piece of retrieved evidence (from Component 1)."""
+    evidence_id:     str
+    text:            str
+    source_id:       str
+    confidence:      CI        # Retrieval confidence as credal interval
+    relevance_score: float     # Dense retrieval score
+    sparse_score:    float     # BM25 score
+    hop_depth:       int = 1
 
 
 @dataclass
-class SymbolicProofStep:
-    """A single step in the symbolic proof chain (from Component 2)."""
-    rule_name:  str
-    premises:   List[str]
-    conclusion: str
-    confidence: CI
-    step_index: int = 0
+class ProofStep:
+    """
+    One atomic step in the symbolic proof trace (from Component 2).
+
+    linked_evidence_ids: IDs of RetrievedEvidence objects that ground
+    the premises of this step. Only these are compared — not all evidence.
+    """
+    step_id:             str
+    rule_name:           str
+    premises:            List[str]
+    conclusion:          str
+    confidence_ci:       CI
+    failure_type:        FailureType = FailureType.NONE
+    linked_evidence_ids: List[str] = field(default_factory=list)
+    step_index:          int = 0
+
+
+@dataclass
+class NeuralSignals:
+    """
+    Neural signals supplied by the LLM forward pass for each proof step.
+
+    token_logprobs  : log-probabilities over the conclusion tokens, shape (T,)
+    hidden_states   : tuple of tensors (n_layers, batch=1, seq, dim)
+                      — only layers of interest need to be passed
+    token_ids       : optional, for debugging
+
+    ensemble_logits : optional (K, 2) from K dropout forward passes,
+                      used for hardware MI estimation on MI300X.
+    """
+    token_logprobs:   Optional[torch.Tensor] = None   # (T,)
+    hidden_states:    Optional[Tuple[torch.Tensor, ...]] = None
+    token_ids:        Optional[torch.Tensor] = None    # (T,)
+    ensemble_logits:  Optional[torch.Tensor] = None    # (K, 2)
+
+
+@dataclass
+class StepInconsistencySignal:
+    """Per-step output consumed by Component 4 (Bandit Mutation Engine)."""
+    step_id:             str
+    credal_ci:           CI
+    neural_uncertainty:  float          # Epistemic uncertainty from EDL head
+    aleatoric:           float          # Aleatoric uncertainty from EDL head
+    evidence_strength:   float          # Dirichlet total evidence S
+    p_inconsistent:      float          # Expected inconsistency probability
+    disagreement:        float          # |credal_mid - p_inconsistent|
+    error_type:          FailureType
+    trigger:             bool
+    repair_hint:         str
 
 
 @dataclass
 class InconsistencySignal:
     """
-    The full inconsistency signal combining credal interval + metacognitive
-    signal.  This is what gets passed to Component 4 (Bandit Mutation Engine).
+    Full output of ProbabilisticInconsistencySignal.compute().
+    Consumed by Component 4 and fed back to Component 1 for replan.
     """
-    # Credal inconsistency interval — replaces scalar I(R,P)
-    credal_inconsistency: CI
-
-    # Metacognitive signal from LLM hidden states (Ji-An et al.)
-    i_meta: float
-
-    # Combined signal
-    combined_score: float
-
-    # Breakdown by inconsistency type
-    type_scores: Dict[InconsistencyType, CI] = field(
-        default_factory=dict
-    )
-
-    # Whether to trigger additional mutation round (Component 4)
-    trigger_mutation: bool = False
-
-    # Raw diagnostics for logging / ablation
-    diagnostics: Dict[str, Any] = field(default_factory=dict)
+    global_score:      float
+    credal_global:     CI
+    step_scores:       List[StepInconsistencySignal]
+    top_failed_steps:  List[str]        # step_ids ranked by combined score
+    repair_hint:       str              # Human-readable replan instruction
+    trigger_mutation:  bool
+    calibration_info:  Dict[str, float] = field(default_factory=dict)
+    diagnostics:       Dict[str, Any]  = field(default_factory=dict)
 
 
 # ============================================================================
-# Section 2: Credal Inconsistency Engine (LCN-inspired)
+# Section 2: Credal Inconsistency Engine (LCN-inspired, step-aligned)
 # ============================================================================
 
 class CredalInconsistencyEngine:
     """
     Computes credal interval [L, U] for inconsistency between retrieved
-    evidence E and symbolic proof chain P.
+    evidence and each symbolic proof step, using alignment-by-pointer.
 
-    Inspired by Logical Credal Networks (Marinescu et al., NeurIPS 2022):
-      - Each evidence piece and proof step carries probability bounds.
-      - Inconsistency = degree to which the credal sets fail to intersect.
-      - Three aggregation modes: "markov" | "independent" | "worst_case".
-
-    Key difference from full LCN: we do not solve the NLP over all 2^n
-    interpretations (intractable at scale).  Instead we decompose into
-    pairwise consistency checks and aggregate with a generalized Markov
-    condition over the proof DAG.
+    Key change vs. v1:
+      - compute() now takes a ProofStep and only the evidence objects
+        whose IDs appear in step.linked_evidence_ids.
+      - Aggregation modes: "markov" | "independent" | "worst_case".
     """
 
     def __init__(
         self,
-        aggregation: str = "markov",   # "markov" | "independent" | "worst_case"
+        aggregation: str = "markov",
         epsilon: float = 1e-6,
     ) -> None:
-        assert aggregation in ("markov", "independent", "worst_case"), \
-            f"Unknown aggregation mode: {aggregation!r}"
+        assert aggregation in ("markov", "independent", "worst_case")
         self.aggregation = aggregation
         self.epsilon = epsilon
 
     # ------------------------------------------------------------------
-    # Pairwise inconsistency
+    # Pairwise inconsistency: one evidence vs. one proof step
     # ------------------------------------------------------------------
 
-    def compute_pairwise_inconsistency(self, evidence, proof_step):
-        # Ép kiểu lại cho chắc chắn
-        if not hasattr(evidence.confidence, 'intersect'):
-            from dataclasses import asdict
-            old_val = evidence.confidence
-            # Re-initialize as the NEW CI class
-            evidence.confidence = CI(lower=old_val.lower, upper=old_val.upper)
-
+    def _pairwise(self, evidence: RetrievedEvidence, step: ProofStep) -> CI:
         e = evidence.confidence
-        p_raw = getattr(proof_step, 'confidence', 0.9) # Base fallback confidence
+        p_raw = step.confidence_ci
 
-        # ==========================================================
-        # THE CALCULUS FIX (SOTA Upgrade)
-        # Đảm bảo p luôn là một CI. Nếu là float, bọc nó lại.
-        # ==========================================================
+        p: CI
         if not isinstance(p_raw, CI):
-            # Dynamic Margin: Phạt độ bất định dựa trên độ sâu của chuỗi logic
-            # Thay vì hardcode 0.05, bước càng sâu, khoảng tin cậy càng mờ (fuzzy).
-            depth_penalty = getattr(proof_step, 'step_index', 0) * 0.015
+            depth_penalty = step.step_index * 0.015
             margin = 0.05 + depth_penalty
-            
-            p = CI(
-                lower=p_raw - margin, 
-                upper=p_raw + margin
-            )
+            p = CI(lower=float(p_raw) - margin, upper=float(p_raw) + margin)
         else:
             p = p_raw
 
-        # Thực hiện phép toán giao (đã đảm bảo an toàn về Type)
         intersection = e.intersect(p)
 
-        # Xử lý Logic Disjoint (Kế thừa từ thuật toán cũ nhưng map với CI(0,0) mới)
         if intersection.width == 0.0 and intersection.upper == 0.0:
-            # Khởi tạo khoảng Disjoint hoàn toàn (Hard Inconsistency)
+            # Disjoint → hard inconsistency
             gap  = max(0.0, e.lower - p.upper, p.lower - e.upper)
             span = max(e.upper, p.upper) - min(e.lower, p.lower)
             return CI(
-                lower=min(1.0, gap),
-                upper=min(1.0, max(gap, span)), 
+                lower=float(np.clip(gap, 0.0, 1.0)),
+                upper=float(np.clip(max(gap, span), 0.0, 1.0)),
             )
         else:
-            # Giao nhau một phần (Partial Inconsistency)
+            # Partial inconsistency
             total_width   = max(e.width, p.width, self.epsilon)
             overlap_width = intersection.width
             u_inc = float(np.clip(1.0 - overlap_width / total_width, 0.0, 1.0))
             return CI(lower=0.0, upper=u_inc)
 
     # ------------------------------------------------------------------
-    # Aggregation helpers
+    # Aggregation helpers (unchanged math, same as v1 with FIX-1)
     # ------------------------------------------------------------------
 
-    def _aggregate_independent(
-        self, pairwise: List[CI]
-    ) -> CI:
-        """
-        Aggregate assuming independence between evidence–proof pairs.
-
-        P(any inconsistency) = 1 - ∏ P(no inconsistency_i)
-
-        With credal intervals the bound propagation is:
-
-            U_agg = 1 - ∏(1 - l_i)   ← pessimistic: each l_i is smallest
-                                         possible individual P(consistent_i)
-            L_agg = 1 - ∏(1 - u_i)   ← optimistic: each u_i is largest
-                                         possible individual P(consistent_i)
-
-        FIX-1: original code had prod_lower/prod_upper swapped.
-        """
+    def _aggregate_independent(self, pairwise: List[CI]) -> CI:
         if not pairwise:
             return CI(0.0, 0.0)
-
-        # Product of (1 - u_i): optimistic complement → gives L_agg
-        prod_opt = 1.0
-        # Product of (1 - l_i): pessimistic complement → gives U_agg
-        prod_pes = 1.0
+        prod_opt = 1.0  # ∏(1 - u_i) → optimistic → L_agg
+        prod_pes = 1.0  # ∏(1 - l_i) → pessimistic → U_agg
         for ci in pairwise:
-            prod_opt *= (1.0 - ci.upper)   # optimistic  (smallest inconsistency)
-            prod_pes *= (1.0 - ci.lower)   # pessimistic (largest  inconsistency)
-
+            prod_opt *= (1.0 - ci.upper)
+            prod_pes *= (1.0 - ci.lower)
         l_agg = float(np.clip(1.0 - prod_pes, 0.0, 1.0))
         u_agg = float(np.clip(1.0 - prod_opt, 0.0, 1.0))
         return CI(lower=l_agg, upper=u_agg)
 
-    def _aggregate_worst_case(
-        self, pairwise: List[CI]
-    ) -> CI:
-        """
-        Worst-case (no independence assumption):
-            L = min(l_i),  U = max(u_i).
-        Conservative but never wrong.
-        """
+    def _aggregate_worst_case(self, pairwise: List[CI]) -> CI:
         if not pairwise:
             return CI(0.0, 0.0)
         return CI(
@@ -293,495 +259,650 @@ class CredalInconsistencyEngine:
     def _aggregate_markov(
         self,
         pairwise:    List[CI],
-        proof_steps: List[SymbolicProofStep],
+        proof_steps: List[ProofStep],
     ) -> CI:
-        """
-        Aggregate using a generalized Markov condition over the proof DAG.
-
-        Key idea from LCN (Def. 5): each proof step is conditionally
-        independent of non-descendant, non-parent steps given its parents.
-        We proxy DAG depth with step_index.
-
-        Within each depth layer  → worst_case  (steps are correlated).
-        Across depth layers      → independent (steps are causally separated).
-        """
         if not pairwise:
             return CI(0.0, 0.0)
-
-        # Group by step_index (proxy for DAG depth layer)
         depth_groups: Dict[int, List[CI]] = {}
         for ci, step in zip(pairwise, proof_steps):
             depth_groups.setdefault(step.step_index, []).append(ci)
-
-        # Within each depth: worst-case (dependent steps)
         layer_intervals = [
             self._aggregate_worst_case(depth_groups[d])
             for d in sorted(depth_groups)
         ]
-
-        # Across depths: independent aggregation
         return self._aggregate_independent(layer_intervals)
 
     # ------------------------------------------------------------------
-    # Main entry point
+    # Per-step compute: alignment-by-pointer
     # ------------------------------------------------------------------
 
-    def compute(
+    def compute_step(
         self,
-        evidence_set: List[RetrievedEvidence],
-        proof_chain:  List[SymbolicProofStep],
-    ) -> Tuple[CI, Dict[InconsistencyType, CI]]:
+        step:         ProofStep,
+        evidence_map: Dict[str, RetrievedEvidence],
+    ) -> CI:
         """
-        Compute overall credal inconsistency interval + per-type breakdown.
-
-        Args:
-            evidence_set: Retrieved evidence from Component 1.
-            proof_chain:  Symbolic proof from Component 2.
-
-        Returns:
-            (overall_interval, per_type_breakdown)
+        Compute credal inconsistency for a single proof step.
+        Only evidence IDs listed in step.linked_evidence_ids are used.
         """
-        if not evidence_set or not proof_chain:
-            return CI(0.0, 0.0), {}
+        linked = [
+            evidence_map[eid]
+            for eid in step.linked_evidence_ids
+            if eid in evidence_map
+        ]
 
-        # Pairwise inconsistencies + type classification
-        pairwise_all: List[CI] = []
-        type_buckets: Dict[InconsistencyType, List[CI]] = {
-            t: [] for t in InconsistencyType if t != InconsistencyType.NONE
-        }
+        if not linked:
+            # No linked evidence → missing premise signal
+            return CI(0.5, 1.0)
 
-        for evidence in evidence_set:
-            for step in proof_chain:
-                ci       = self.compute_pairwise_inconsistency(evidence, step)
-                rule_name = getattr(step, 'rule_name', "UNKNOWN")
-                inc_type = self._classify_type(rule_name)
-                pairwise_all.append(ci)
-                if inc_type != InconsistencyType.NONE:
-                    type_buckets[inc_type].append(ci)
+        pairwise = [self._pairwise(ev, step) for ev in linked]
 
-        # Overall aggregation
         if self.aggregation == "markov":
-            # Expand pairwise list to match proof steps (|evidence| copies each)
-            expanded_steps = proof_chain * len(evidence_set)
-            overall = self._aggregate_markov(pairwise_all, expanded_steps)
+            expanded_steps = [step] * len(pairwise)
+            return self._aggregate_markov(pairwise, expanded_steps)
         elif self.aggregation == "independent":
-            overall = self._aggregate_independent(pairwise_all)
+            return self._aggregate_independent(pairwise)
         else:
-            overall = self._aggregate_worst_case(pairwise_all)
-
-        # Per-type breakdown (independent aggregation within each type)
-        type_scores: Dict[InconsistencyType, CI] = {
-            t: self._aggregate_independent(cis)
-            for t, cis in type_buckets.items()
-            if cis
-        }
-
-        return overall, type_scores
+            return self._aggregate_worst_case(pairwise)
 
     # ------------------------------------------------------------------
-    # Rule → inconsistency type mapping
-    # FIX-4: extended to cover all 40 ops from Component 2
+    # Global aggregation across all steps
     # ------------------------------------------------------------------
 
-    _TEMPORAL_KEYWORDS = frozenset([
-        "temporal", "before", "after", "during", "since", "until",
-        "order_time", "span", "sequence",
-    ])
-    _CAUSAL_KEYWORDS = frozenset([
-        "caus", "implies", "because", "enable", "prevent", "require",
-        "effect", "mediat", "confounder", "instrument",
-    ])
-    _COMPARATIVE_KEYWORDS = frozenset([
-        "compar", "greater", "less", "above", "below", "max", "min",
-        "rank", "diff", "ratio", "threshold", "flip", "equaliz",
-        "normaliz",
-    ])
-    _LOGICAL_KEYWORDS = frozenset([
-        "contradict", "negat", "negate", "contrapos", "tollens",
-        "double_neg", "disjunct", "conjunct", "universal", "existential",
-        "logical", "implication",
-    ])
-    _FACTUAL_KEYWORDS = frozenset([
-        "fact", "entity", "find", "filter", "bridge", "path",
-        "link", "join", "relate", "verify", "exists", "select",
-        "project", "resolve", "clarify", "explain",
-    ])
-
-    @classmethod
-    def _classify_type(cls, rule_name: str) -> InconsistencyType:
-        """Map a symbolic rule name to an InconsistencyType."""
-        rn = rule_name.lower()
-        # Check in priority order (most specific first)
-        for kw in cls._TEMPORAL_KEYWORDS:
-            if kw in rn:
-                return InconsistencyType.TEMPORAL
-        for kw in cls._CAUSAL_KEYWORDS:
-            if kw in rn:
-                return InconsistencyType.CAUSAL
-        for kw in cls._COMPARATIVE_KEYWORDS:
-            if kw in rn:
-                return InconsistencyType.COMPARATIVE
-        for kw in cls._LOGICAL_KEYWORDS:
-            if kw in rn:
-                return InconsistencyType.LOGICAL
-        for kw in cls._FACTUAL_KEYWORDS:
-            if kw in rn:
-                return InconsistencyType.FACTUAL
-        return InconsistencyType.NONE
+    def compute_global(self, step_cis: List[CI], proof_chain: List[ProofStep]) -> CI:
+        """Aggregate per-step credal CIs into a global credal interval."""
+        if self.aggregation == "markov":
+            return self._aggregate_markov(step_cis, proof_chain)
+        elif self.aggregation == "independent":
+            return self._aggregate_independent(step_cis)
+        else:
+            return self._aggregate_worst_case(step_cis)
 
 
 # ============================================================================
-# Section 3: Metacognitive Signal Extractor  (Ji-An et al. inspired)
+# Section 3: Uncertainty-Weighted Hidden-State Probe (Step-Level I_meta)
 # ============================================================================
 
-class MetaCognitiveExtractor(nn.Module):
+class UncertaintyWeightedProbe(nn.Module):
     """
-    Extracts I_meta from LLM hidden states following the neurofeedback
-    paradigm of Ji-An et al. (NeurIPS 2025).
+    Step-level neural inconsistency head.
 
-    Key ideas implemented:
-      1. Extract residual stream activations from layers 24-32 of
-         Llama-3.1-70B (middle-to-late layers show strongest control
-         effects per Fig. 5a of Ji-An et al.).
-      2. Project onto LR axis (logistic regression direction) trained to
-         predict consistency/inconsistency from internal activations.
-      3. Soft binarisation → scalar I_meta ∈ [0, 1].
-
-    The LR axis is trained offline on (question, evidence, proof) tuples
-    where ground-truth consistency labels are available.
-
-    This implements the "second-order metacognitive process" (Ji-An et al.
-    Sec. A.4): the LLM's first-order process handles QA; the second-order
-    process monitors whether internal activations signal inconsistency.
+    Key upgrades vs. v1 MetaCognitiveExtractor:
+      1. Uncertainty-weighted pooling: token positions with high entropy /
+         low logprob receive higher weight (more informative for failure
+         detection). Replaces mean pooling.
+      2. Cross-layer delta: difference between semantic layer (start_layer)
+         and reasoning layer (end_layer), not just last-layer features.
+      3. Evidential Deep Learning (EDL) output head: returns Dirichlet
+         parameters → p_inconsistent, epistemic, aleatoric,
+         evidence_strength. Not a scalar.
+      4. Optional ensemble MI (hardware-aware): if ensemble_logits provided,
+         computes mutual information across dropout samples.
     """
 
     def __init__(
         self,
-        hidden_dim:           int   = 8192,   # Llama-3.1-70B hidden dim
-        n_layers_to_extract:  int   = 9,      # Layers 24–32 (0-indexed)
-        start_layer:          int   = 24,
-        n_bins:               int   = 2,      # Binary labels (extendable to 8)
-        device:               str   = "cuda",
+        hidden_dim:  int = 8192,   # Llama-3.1-70B
+        start_layer: int = 24,     # Semantic layer
+        end_layer:   int = 32,     # Reasoning layer
+        n_classes:   int = 2,      # consistent vs. inconsistent
+        device:      str = "cuda",
     ) -> None:
         super().__init__()
         self.hidden_dim  = hidden_dim
-        self.n_layers    = n_layers_to_extract
         self.start_layer = start_layer
-        self.n_bins      = n_bins
+        self.end_layer   = end_layer
+        self.n_classes   = n_classes
         self.device      = device
 
-        # LR axis: one direction vector per target layer
-        self.lr_axes = nn.ParameterList([
-            nn.Parameter(torch.randn(hidden_dim) * 0.01)
-            for _ in range(n_layers_to_extract)
-        ])
+        # Cross-layer feature: semantic ‖ reasoning ‖ delta → 3 * hidden_dim
+        feature_dim = hidden_dim * 3
 
-        # Binarisation threshold θ^l per layer (initialised to 0)
-        self.thresholds = nn.Parameter(torch.zeros(n_layers_to_extract))
-
-        # Cross-layer importance weights: deeper → more weight (Fig. 5a)
-        self.layer_weights = nn.Parameter(
-            torch.linspace(0.5, 1.5, n_layers_to_extract)
-        )
-
-        # Aggregator MLP: (n_layers,) → I_meta scalar
-        self.aggregator = nn.Sequential(
-            nn.Linear(n_layers_to_extract, 32),
+        # EDL head: outputs evidence e_k >= 0, one per class
+        self.edl_head = nn.Sequential(
+            nn.Linear(feature_dim, 512),
             nn.GELU(),
             nn.Dropout(0.1),
-            nn.Linear(32, 16),
+            nn.Linear(512, 128),
             nn.GELU(),
-            nn.Linear(16, 1),
-            nn.Sigmoid(),             # I_meta ∈ [0, 1]
+            nn.Linear(128, n_classes),
+            nn.Softplus(),   # evidence e_k ≥ 0
         )
 
     # ------------------------------------------------------------------
-    # Forward pass
+    # Uncertainty-weighted pooling
     # ------------------------------------------------------------------
 
-    def extract_residual_streams(
-        self, model_outputs
-    ) -> List[torch.Tensor]:
-        """
-        Extract mean-pooled residual stream h̄^l from target layers.
-
-        Per Ji-An et al. Sec. 2.3:
-            h̄^l = mean_{t} h^l_{i,t}      (average over token positions)
-        """
-        hidden_states = model_outputs.hidden_states
-        extracted = []
-        for offset in range(self.n_layers):
-            layer_idx = self.start_layer + offset
-            if layer_idx >= len(hidden_states):
-                layer_idx = len(hidden_states) - 1
-            h_bar = hidden_states[layer_idx].mean(dim=1)   # (batch, hidden_dim)
-            extracted.append(h_bar)
-        return extracted
-
-    def project_onto_lr_axes(
-        self, residual_streams: List[torch.Tensor]
+    @staticmethod
+    def _uncertainty_weighted_pool(
+        h:          torch.Tensor,   # (seq, hidden_dim)
+        logprobs:   Optional[torch.Tensor],  # (seq,) or None
     ) -> torch.Tensor:
         """
-        Project each layer's h̄^l onto its LR axis w^l.
+        Pool hidden states weighted by token-level uncertainty.
 
-        Per Ji-An et al. Sec. 2.3:
-            a^l_i = (w^l)^T h̄^l_i
+        Weight ∝ H(token) = -logprob (high uncertainty → large weight).
+        Falls back to uniform (mean pooling) if logprobs unavailable.
 
-        Returns: (batch, n_layers)
+        Returns: (hidden_dim,)
         """
-        projections = []
-        for offset, h_bar in enumerate(residual_streams):
-            w      = self.lr_axes[offset]
-            w_norm = w / (w.norm() + 1e-8)
-            a_l    = torch.matmul(h_bar, w_norm)   # (batch,)
-            projections.append(a_l)
-        return torch.stack(projections, dim=-1)    # (batch, n_layers)
+        if logprobs is None or logprobs.shape[0] != h.shape[0]:
+            return h.mean(dim=0)
 
-    def binarize(self, projections: torch.Tensor) -> torch.Tensor:
-        """
-        Soft binarisation:  y^l = H(a^l - θ^l)   (Ji-An et al. Sec. 2.3)
+        # Token entropy proxy: -logprob (higher = more uncertain)
+        neg_lp  = -logprobs.to(h.device)            # (seq,)
+        weights = F.softmax(neg_lp, dim=0)          # normalise
+        return (h * weights.unsqueeze(-1)).sum(dim=0)  # (hidden_dim,)
 
-        We use sigmoid with temperature=5 for differentiability during
-        LR-axis training.
+    # ------------------------------------------------------------------
+    # EDL utilities
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _edl_quantities(
+        evidence: torch.Tensor,   # (batch, n_classes)
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        temperature = 5.0
-        return torch.sigmoid(
-            (projections - self.thresholds.unsqueeze(0)) * temperature
-        )   # (batch, n_layers)
+        From Dirichlet evidence e_k compute:
+          alpha_k = e_k + 1
+          S       = Σ alpha_k               (Dirichlet strength)
+          p_k     = alpha_k / S             (expected probability)
+          epistemic = n_classes / S          (vacuity / epistemic uncertainty)
+          aleatoric = Σ p_k(1 - p_k)        (distributional uncertainty)
+
+        Returns: (p_inconsistent, epistemic, aleatoric, evidence_strength)
+        """
+        alpha    = evidence + 1.0                              # (B, C)
+        S        = alpha.sum(dim=-1, keepdim=True)             # (B, 1)
+        p        = alpha / S                                   # (B, C)
+        p_inc    = p[:, 1]                                     # (B,) class=1
+        epist    = evidence.shape[-1] / S.squeeze(-1)          # (B,)
+        aleat    = (p * (1.0 - p)).sum(dim=-1)                 # (B,)
+        strength = S.squeeze(-1)                               # (B,)
+        return p_inc, epist, aleat, strength
+
+    # ------------------------------------------------------------------
+    # Forward: per-step neural uncertainty
+    # ------------------------------------------------------------------
 
     def forward(
-        self, model_outputs
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        self,
+        neural:    NeuralSignals,
+    ) -> Tuple[float, float, float, float]:
         """
-        Compute I_meta ∈ [0, 1] from LLM hidden states.
+        Compute step-level EDL quantities from NeuralSignals.
 
         Returns:
-            i_meta:      (batch,)
-            diagnostics: per-layer projections / labels / weights
+            p_inconsistent    : float ∈ [0, 1]
+            epistemic         : float ∈ [0, 1]
+            aleatoric         : float ∈ [0, 1]
+            evidence_strength : float ≥ 0
         """
-        streams    = self.extract_residual_streams(model_outputs)
-        proj       = self.project_onto_lr_axes(streams)          # (B, n_layers)
-        labels     = self.binarize(proj)                          # (B, n_layers)
-        weights    = F.softmax(self.layer_weights, dim=0)
-        weighted   = labels * weights.unsqueeze(0)               # (B, n_layers)
-        i_meta     = self.aggregator(weighted).squeeze(-1)        # (B,)
+        if neural.hidden_states is None:
+            return 0.5, 1.0, 0.5, 0.0
 
-        diagnostics = {
-            "per_layer_projections": proj.detach(),
-            "per_layer_labels":      labels.detach(),
-            "layer_weights":         weights.detach(),
-        }
-        return i_meta, diagnostics
+        hs     = neural.hidden_states
+        n_lay  = len(hs)
 
-    # ------------------------------------------------------------------
-    # Offline LR-axis training
-    # FIX-6: eval() called once outside loop; weight_decay added to Adam
-    # ------------------------------------------------------------------
+        def _safe_layer(idx: int) -> torch.Tensor:
+            idx = min(idx, n_lay - 1)
+            return hs[idx][0]   # (seq, dim) — squeeze batch dim
 
-    def train_lr_axes(
-        self,
-        dataset:  List[Tuple[List[torch.Tensor], int]],
-        n_epochs: int   = 50,
-        lr:       float = 1e-3,
-    ) -> None:
+        h_sem = _safe_layer(self.start_layer)     # semantic
+        h_rea = _safe_layer(self.end_layer)        # reasoning
+
+        logp  = neural.token_logprobs              # (seq,) or None
+
+        # Uncertainty-weighted pooling per layer
+        v_sem = self._uncertainty_weighted_pool(h_sem, logp)   # (dim,)
+        v_rea = self._uncertainty_weighted_pool(h_rea, logp)   # (dim,)
+        v_del = v_rea - v_sem                                  # cross-layer delta
+
+        features = torch.cat([v_sem, v_rea, v_del], dim=0).unsqueeze(0)  # (1, 3*dim)
+        features = features.to(next(self.edl_head.parameters()).device)
+
+        with torch.no_grad():
+            self.eval()
+            evidence = self.edl_head(features)               # (1, n_classes)
+            p_inc, epist, aleat, strength = self._edl_quantities(evidence)
+
+        p_inc_val  = float(p_inc[0].item())
+        epist_val  = float(epist[0].item())
+        aleat_val  = float(aleat[0].item())
+        str_val    = float(strength[0].item())
+
+        # Optional: hardware ensemble MI (MI300X multi-GPU dropout)
+        if neural.ensemble_logits is not None:
+            p_inc_val = self._ensemble_mi_correction(
+                p_inc_val, neural.ensemble_logits
+            )
+
+        return p_inc_val, epist_val, aleat_val, str_val
+
+    @staticmethod
+    def _ensemble_mi_correction(
+        p_inc_base: float,
+        ensemble_logits: torch.Tensor,   # (K, 2)
+    ) -> float:
         """
-        Train LR axes + aggregator on labelled
-        (per_layer_activations, consistency_label) pairs.
-
-        Labels:  0 = consistent,  1 = inconsistent.
-
-        Per Ji-An et al. Sec. 2.5: fit a logistic regression at each
-        layer to predict dataset labels from that layer's activations.
+        Compute mutual information across K ensemble members.
+        MI = H(E_θ[p]) - E_θ[H(p)]
+        Blends MI into p_inconsistent as a calibration signal.
         """
-        optimizer = torch.optim.Adam(
-            self.parameters(), lr=lr, weight_decay=1e-5   # FIX-6
-        )
-        criterion = nn.BCELoss()
-
-        self.train()                         # FIX-6: set once before loop
-        for epoch in range(n_epochs):
-            total_loss = 0.0
-            for hidden_states_tuple, label in dataset:
-                projections_list = []
-                for offset in range(self.n_layers):
-                    w      = self.lr_axes[offset]
-                    w_norm = w / (w.norm() + 1e-8)
-                    h      = hidden_states_tuple[offset]   # (1, hidden_dim)
-                    a      = torch.matmul(h, w_norm)       # (1,)
-                    projections_list.append(a)
-
-                proj        = torch.stack(projections_list, dim=-1)   # (1, n_layers)
-                labels_soft = self.binarize(proj)
-                weights     = F.softmax(self.layer_weights, dim=0)
-                weighted    = labels_soft * weights.unsqueeze(0)
-                i_meta_out  = self.aggregator(weighted).squeeze(-1)   # (1,)
-                target      = torch.tensor(
-                    [float(label)], device=i_meta_out.device
-                )
-                loss = criterion(i_meta_out, target)
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-
-            if (epoch + 1) % 10 == 0:
-                logger.info(
-                    "LR axis training epoch %d/%d  loss=%.4f",
-                    epoch + 1, n_epochs,
-                    total_loss / max(len(dataset), 1),
-                )
-
-        self.eval()
+        probs  = torch.softmax(ensemble_logits, dim=-1)          # (K, 2)
+        p_mean = probs.mean(dim=0)                               # (2,)
+        h_mean = -(p_mean * torch.log(p_mean + 1e-8)).sum()
+        h_each = -(probs * torch.log(probs + 1e-8)).sum(dim=-1)  # (K,)
+        mi     = float((h_mean - h_each.mean()).item())
+        # Blend: high MI → lean toward p_inc = 0.5 (uncertain)
+        return 0.8 * p_inc_base + 0.2 * float(np.clip(0.5 + mi, 0.0, 1.0))
 
 
 # ============================================================================
-# Section 4: LR Axis Trainer  (offline, before inference)
+# Section 4: Failure Diagnosis
 # ============================================================================
 
-class LRAxisTrainer:
+class FailureDiagnoser:
     """
-    Offline trainer for MetaCognitiveExtractor LR axes.
-
-    Per Ji-An et al. Sec. 2.5:
-        "We fit LR at each layer to predict original dataset labels,
-         using that layer's activations across dataset sentences."
-
-    For our NeSy-QA setting:
-        - Dataset = (question + evidence + proof) tuples.
-        - Labels  = {0: consistent, 1: inconsistent}.
-
-    After training, the LR weight vectors become w^l in MetaCognitiveExtractor.
+    Maps (ProofStep, credal_ci, p_inconsistent, linked_evidence) to a
+    FailureType with a natural-language repair hint.
     """
 
-    def __init__(
-        self,
-        meta_extractor: MetaCognitiveExtractor,
-        device:         str = "cuda",
-    ) -> None:
-        self.meta_extractor = meta_extractor
-        self.device         = device
+    _TEMPORAL_KW    = frozenset(["temporal","before","after","during","since",
+                                 "until","order_time","span","sequence"])
+    _CAUSAL_KW      = frozenset(["caus","implies","because","enable","prevent",
+                                 "require","effect","mediat","confounder"])
+    _LOGICAL_KW     = frozenset(["contradict","negat","contrapos","tollens",
+                                 "double_neg","disjunct","conjunct","universal",
+                                 "existential","logical","implication"])
+    _FACTUAL_KW     = frozenset(["fact","entity","find","filter","bridge","path",
+                                 "link","join","relate","verify","exists",
+                                 "select","project","resolve"])
+    _COMPARATIVE_KW = frozenset(["compar","greater","less","above","below",
+                                 "max","min","rank","diff","ratio","threshold"])
 
-    def collect_activations(
-        self,
-        model,
-        tokenizer,
-        texts:      List[str],
-        labels:     List[int],
-        batch_size: int = 8,
-    ) -> List[Tuple[List[torch.Tensor], int]]:
-        """
-        Run texts through the LLM, collect hidden states per target layer.
+    @staticmethod
+    def _extract_years(text: str) -> List[int]:
+        years = re.findall(r"\b(1[0-9]{3}|20[0-9]{2}|21[0-9]{2})\b", text)
+        return [int(y) for y in years]
 
-        FIX-2: tensors are moved to CPU immediately after extraction to
-        avoid accumulating gigabytes of VRAM across large datasets.
-
-        Returns:
-            List of (per_layer_activations_on_CPU, label) pairs.
-        """
-        model.eval()
-        dataset: List[Tuple[List[torch.Tensor], int]] = []
-
-        for i in range(0, len(texts), batch_size):
-            batch_texts  = texts[i : i + batch_size]
-            batch_labels = labels[i : i + batch_size]
-
-            inputs = tokenizer(
-                batch_texts,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=512,
-            ).to(self.device)
-
-            with torch.no_grad():
-                outputs = model(**inputs, output_hidden_states=True)
-
-            hidden_states = outputs.hidden_states   # tuple of (B, L, D)
-
-            for j in range(len(batch_texts)):
-                per_layer: List[torch.Tensor] = []
-                for offset in range(self.meta_extractor.n_layers):
-                    layer_idx = self.meta_extractor.start_layer + offset
-                    if layer_idx >= len(hidden_states):
-                        layer_idx = len(hidden_states) - 1
-                    # Mean over token positions, then move to CPU (FIX-2)
-                    h = (
-                        hidden_states[layer_idx][j]
-                        .mean(dim=0, keepdim=True)
-                        .cpu()               # ← FIX-2
-                    )
-                    per_layer.append(h)
-                dataset.append((per_layer, batch_labels[j]))
-
-            logger.debug("Collected activations %d/%d", i + len(batch_texts), len(texts))
-
-        return dataset
-
-    def train(
-        self,
-        model,
-        tokenizer,
-        texts:      List[str],
-        labels:     List[int],
-        n_epochs:   int   = 50,
-        lr:         float = 1e-3,
-        batch_size: int   = 8,
-    ) -> None:
-        """
-        Full training pipeline:
-          1. Collect activations from LLM (GPU, batched).
-          2. Train LR axes + aggregator (CPU-resident tensors).
-        """
-        logger.info("Collecting activations from LLM (%d samples)…", len(texts))
-        dataset = self.collect_activations(
-            model, tokenizer, texts, labels, batch_size
+    @staticmethod
+    def _has_resolution_marker(text: str) -> bool:
+        markers = [
+            "cannot",
+            "can't",
+            "impossible",
+            "must be wrong",
+            "date or object identification must be wrong",
+            "not show",
+            "reject impossible ordering",
+            "misdated",
+            "incorrect date",
+            "wrong date",
+        ]
+        return any(m in text for m in markers) 
+    @staticmethod
+    def _temporal_relation_from_text(text: str) -> Optional[Tuple[int, int]]:
+        raw_years = re.findall(
+            r"\b(?:\d{1,3}|1[0-9]{3}|20[0-9]{2}|21[0-9]{2})(?:s)?\b",
+            text
         )
-        logger.info("Training LR axes on %d samples for %d epochs…", len(dataset), n_epochs)
-        self.meta_extractor.train_lr_axes(dataset, n_epochs=n_epochs, lr=lr)
-        logger.info("LR axis training complete.")
+        years = [int(y.rstrip("s")) for y in raw_years]
+        if len(years) < 2:
+            return None
+
+        text = text.lower()
+
+        # "If origin YEAR, how could claim YEAR"
+        if text.startswith("if") and "how could" in text:
+            return years[1], years[0]  # claim, origin
+
+        # "How could claim YEAR if origin YEAR"
+        if text.startswith("how could") and " if " in text:
+            return years[0], years[1]  # claim, origin
+
+        # generic: for dataset-style temporal claims, later mentioned origin often follows "if"
+        if " if " in text:
+            return years[0], years[1]
+
+        return None 
+
+    @staticmethod
+    def _predict_temporal_from_question_like_text(text: str):
+        text = text.lower()
+
+        raw = re.findall(
+            r"\b(?:\d{1,3}|1[0-9]{3}|20[0-9]{2}|21[0-9]{2})(?:s)?\b",
+            text,
+        )
+        years = [int(x.rstrip("s")) for x in raw]
+
+        if len(years) < 2:
+            if (
+                text.startswith("how could")
+                and ("still ongoing" in text or "under construction" in text)
+                and ("exist in" in text or "photo" in text or "painting" in text)
+            ):
+                return 1
+            return None
+
+        y1, y2 = years[0], years[1]
+
+        if text.startswith("if") and "how could" in text:
+            origin_year, claim_year = y1, y2
+            return int(claim_year < origin_year)
+
+        if text.startswith("how could"):
+            origin_markers = [
+                "founded", "established", "released", "published", "launched",
+                "premiered", "completed", "built", "invented", "opened",
+                "incorporated", "discovered", "introduced", "created", "finished",
+                "available", "debuted", "operated", "tested", "made",
+            ]
+
+            prefix_before_y1 = text.split(str(y1))[0]
+
+            if "completed" in prefix_before_y1 and (
+                "photo" in prefix_before_y1 or "painting" in prefix_before_y1
+            ):
+                y1_is_origin = False
+            else:
+                y1_is_origin = any(marker in prefix_before_y1 for marker in origin_markers)
+
+            if y1_is_origin:
+                origin_year, claim_year = y1, y2
+            else:
+                claim_year, origin_year = y1, y2
+
+            return int(claim_year < origin_year)
+
+        if text.startswith("could") and " if " in text:
+            claim_year, origin_year = y1, y2
+            return int(claim_year < origin_year)
+
+        return None                           
+
+    def diagnose(
+        self,
+        step:             ProofStep,
+        credal_ci:        CI,
+        p_inconsistent:   float,
+        linked_evidence:  List[RetrievedEvidence],
+    ) -> Tuple[FailureType, str]:
+        """
+        Returns (FailureType, repair_hint).
+        """
+        step_text = " ".join([
+            str(step.rule_name or ""),
+            str(step.conclusion or ""),
+            " ".join(map(str, step.premises or [])),
+            " ".join(ev.text for ev in linked_evidence),
+        ]).lower()
+
+        if self._predict_temporal_from_question_like_text(step_text) == 1:
+            return (
+                FailureType.TEMPORAL,
+                f"Step '{step.step_id}': temporal contradiction detected by generalized parser. "
+                f"Replan: verify chronology and retrieve date-specific evidence."
+            )
+
+        # 1. Missing premise
+        if not linked_evidence:
+            return (
+                FailureType.MISSING_PREMISE,
+                f"Step '{step.step_id}': no grounding evidence found for "
+                f"premises {step.premises}. "
+                f"Replan: retrieve evidence for these premises."
+            )
+
+        # 1.5 Preserve execution failure from Component 2
+        if step.failure_type != FailureType.NONE:
+            return (
+                step.failure_type,
+                f"Step '{step.step_id}' failed during symbolic execution: "
+                f"{step.failure_type.value}. "
+                f"Replan: repair this step before continuing."
+            )
+
+        raw_question = getattr(step, "raw_question", "")
+        temporal_source = raw_question.lower().strip()
+
+        if not temporal_source:
+            evidence_text = " ".join(ev.text for ev in linked_evidence).lower()
+            temporal_source = evidence_text if evidence_text.strip() else step_text
+
+        temporal_pred = self._predict_temporal_from_question_like_text(temporal_source)
+
+        if temporal_pred == 1:
+            return (
+                FailureType.TEMPORAL,
+                f"Step '{step.step_id}': temporal contradiction detected by generalized parser. "
+                f"Replan: verify chronology and retrieve date-specific evidence."
+            )
+
+        if temporal_pred == 0:
+            return (
+                FailureType.NONE,
+                "Temporal order is valid (forward progression)."
+            )
+
+        rel = self._temporal_relation_from_text(step_text)
+        if rel is not None and not self._has_resolution_marker(step_text):
+            claim_year, origin_year = rel
+            if claim_year < origin_year:
+                return (
+                    FailureType.TEMPORAL,
+                    f"Step '{step.step_id}': temporal contradiction "
+                    f"(claim {claim_year} before origin {origin_year})."
+                )
+            return (
+                FailureType.NONE,
+                "Temporal order is valid (forward progression)."
+            )
+
+        rn = step.rule_name.lower()
+
+        all_ev_confident = all(ev.confidence.midpoint > 0.6 for ev in linked_evidence)
+        if credal_ci.lower > 0.6 and all_ev_confident:
+            return (
+                FailureType.INVALID_INFERENCE,
+                f"Step '{step.step_id}': premises are evidenced but rule "
+                f"'{step.rule_name}' leads to an invalid conclusion "
+                f"'{step.conclusion}'. "
+                f"Replan: verify rule applicability or revise premises."
+            )
+
+        for kw in self._TEMPORAL_KW:
+            if kw in rn:
+                return (
+                    FailureType.TEMPORAL,
+                    f"Step '{step.step_id}': temporal ordering violation "
+                    f"in rule '{step.rule_name}'. "
+                    f"Replan: re-retrieve timeline evidence."
+                )
+
+        for kw in self._CAUSAL_KW:
+            if kw in rn:
+                return (
+                    FailureType.CAUSAL,
+                    f"Step '{step.step_id}': causal chain break "
+                    f"at rule '{step.rule_name}'. "
+                    f"Replan: verify enabling conditions."
+                )
+
+        for kw in self._LOGICAL_KW:
+            if kw in rn:
+                return (
+                    FailureType.LOGICAL,
+                    f"Step '{step.step_id}': logical contradiction "
+                    f"via rule '{step.rule_name}'. "
+                    f"Replan: check negation or contrapositive."
+                )
+
+        for kw in self._FACTUAL_KW:
+            if kw in rn:
+                return (
+                    FailureType.FACTUAL,
+                    f"Step '{step.step_id}': retrieved fact conflicts with "
+                    f"conclusion '{step.conclusion}'. "
+                    f"Replan: re-retrieve primary sources for this entity."
+                )
+
+        return (
+            FailureType.NONE,
+            f"Step '{step.step_id}': no actionable inconsistency detected. "
+            f"Credal={credal_ci}, p_inc={p_inconsistent:.3f}."
+        )
+
+
+    # ============================================================================
+    # Section 5: Calibration Layer
+    # ============================================================================
+
+class CalibrationLayer:
+    """
+    Post-hoc calibration on a dev set.
+
+    Supports:
+      - Temperature scaling (differentiable, single scalar T)
+      - Isotonic regression (non-parametric, monotone)
+
+    Reports: ECE (15-bin), Brier score, AUROC.
+
+    Usage:
+        cal = CalibrationLayer(method="temperature")
+        cal.fit(logits_dev, labels_dev)
+        p_cal = cal.calibrate(logits_test)
+        metrics = cal.evaluate(p_cal, labels_test)
+    """
+
+    def __init__(self, method: str = "temperature", n_bins: int = 15) -> None:
+        assert method in ("temperature", "isotonic")
+        self.method   = method
+        self.n_bins   = n_bins
+        self.T        = 1.0     # temperature (scalar)
+        self._iso     = None    # isotonic regressor
+        self._fitted  = False
+
+    # ------------------------------------------------------------------
+
+    def fit(
+        self,
+        logits: np.ndarray,   # (N,) raw scores ∈ ℝ
+        labels: np.ndarray,   # (N,) ∈ {0, 1}
+    ) -> None:
+        """Fit calibration on dev set logits."""
+        from scipy.special import expit
+        from scipy.optimize import minimize_scalar
+
+        if self.method == "temperature":
+            def nll(T):
+                p = expit(logits / T)
+                return -np.mean(
+                    labels * np.log(p + 1e-8) +
+                    (1 - labels) * np.log(1 - p + 1e-8)
+                )
+            res = minimize_scalar(nll, bounds=(0.05, 10.0), method="bounded")
+            self.T = float(res.x)
+            logger.info("Temperature calibration: T=%.4f", self.T)
+
+        else:  # isotonic
+            from sklearn.isotonic import IsotonicRegression
+            p_raw = expit(logits)
+            self._iso = IsotonicRegression(out_of_bounds="clip")
+            self._iso.fit(p_raw, labels)
+            logger.info("Isotonic calibration fitted.")
+
+        self._fitted = True
+
+    def calibrate(self, logits: np.ndarray) -> np.ndarray:
+        """Apply calibration; returns probabilities ∈ [0, 1]."""
+        from scipy.special import expit
+        if not self._fitted:
+            return expit(logits)
+        if self.method == "temperature":
+            return expit(logits / self.T)
+        else:
+            p_raw = expit(logits)
+            return self._iso.predict(p_raw)
+
+    def evaluate(
+        self,
+        probs:  np.ndarray,   # (N,) calibrated probabilities
+        labels: np.ndarray,   # (N,) ground-truth
+    ) -> Dict[str, float]:
+        """
+        Compute ECE (equal-width bins), Brier score, AUROC.
+        """
+        from sklearn.metrics import roc_auc_score
+
+        # ECE
+        bin_edges = np.linspace(0.0, 1.0, self.n_bins + 1)
+        ece = 0.0
+        n   = len(probs)
+        for lo, hi in zip(bin_edges[:-1], bin_edges[1:]):
+            mask = (probs >= lo) & (probs < hi)
+            if mask.sum() == 0:
+                continue
+            acc  = labels[mask].mean()
+            conf = probs[mask].mean()
+            ece += mask.sum() / n * abs(acc - conf)
+
+        # Brier
+        brier = float(np.mean((probs - labels) ** 2))
+
+        # AUROC
+        try:
+            auroc = float(roc_auc_score(labels, probs))
+        except ValueError:
+            auroc = float("nan")
+
+        metrics = {"ECE": float(ece), "Brier": brier, "AUROC": auroc}
+        logger.info("Calibration metrics: %s", metrics)
+        return metrics
 
 
 # ============================================================================
-# Section 5: Combined Inconsistency Signal
+# Section 6: ProbabilisticInconsistencySignal  (single class, no duplicates)
 # ============================================================================
 
 class ProbabilisticInconsistencySignal:
     """
-    Component 3 main class — ties CredalInconsistencyEngine + MetaCognitiveExtractor
-    together into a single InconsistencySignal consumed by Component 4.
+    Component 3 main class — Step-level Credal-Neural Inconsistency Engine.
 
-    Combination formula
-    -------------------
-        combined = α * credal.midpoint + (1 - α) * I_meta
+    Inputs
+    ------
+    evidence_set  : List[RetrievedEvidence] from Component 1
+    proof_trace   : List[ProofStep] from Component 2
+                    Each step carries linked_evidence_ids → alignment-by-pointer
+    neural_signals: Dict[step_id, NeuralSignals] — per-step LLM signals
 
-    Adaptive α:
-        When credal width is large (high epistemic uncertainty in symbolic
-        reasoning) we rely more on I_meta and reduce α.
-        When credal width is small (confident symbolic reasoning) we trust
-        the credal midpoint and increase α.
-        α is clamped to [alpha_min, alpha_max] so neither signal dominates.
+    Output: InconsistencySignal with
+      global_score, step_scores, top_failed_steps, repair_hint
 
-    Mutation trigger:
-        Trigger Component 4 mutation if:
-          combined > mutation_threshold   OR
-          |credal.midpoint - I_meta| > disagreement_threshold
-        The disagreement trigger catches cases where symbolic and neural
-        pathways see different things — exactly where NeSy adds value.
-
-    FIX-5: mutation_threshold and disagreement_threshold are constructor
-    parameters (not hardcoded) so they can be tuned on a dev set.
+    Architecture
+    ------------
+    1. Per-step credal CI from linked evidence only (no cross-contamination)
+    2. Per-step EDL uncertainty from uncertainty-weighted hidden-state probe
+    3. Adaptive alpha combination: credal midpoint + EDL p_inconsistent
+    4. FailureDiagnoser → FailureType + repair hint per step
+    5. Global aggregation + top_failed_steps ranking
+    6. Optional calibration via CalibrationLayer
     """
 
     def __init__(
         self,
-        alpha_base:              float = 0.6,
-        alpha_min:               float = 0.2,
-        alpha_max:               float = 0.8,
-        mutation_threshold:      float = 0.5,    # FIX-5
-        disagreement_threshold:  float = 0.4,    # FIX-5
-        meta_extractor:          Optional[MetaCognitiveExtractor] = None,
-        aggregation:             str   = "markov",
-        device:                  str   = "cuda",
+        alpha_base:             float = 0.6,
+        alpha_min:              float = 0.2,
+        alpha_max:              float = 0.8,
+        mutation_threshold:     float = 0.65,
+        disagreement_threshold: float = 0.4,
+        aggregation:            str   = "markov",
+        hidden_dim:             int   = 8192,
+        start_layer:            int   = 24,
+        end_layer:              int   = 32,
+        device:                 str   = "cuda",
+        calibration_method:     str   = "temperature",
     ) -> None:
         self.alpha_base             = alpha_base
         self.alpha_min              = alpha_min
@@ -791,418 +912,434 @@ class ProbabilisticInconsistencySignal:
         self.device                 = device
 
         self.credal_engine  = CredalInconsistencyEngine(aggregation=aggregation)
-        self.meta_extractor = meta_extractor or MetaCognitiveExtractor(
-            device=device
-        )
+        self.neural_probe   = UncertaintyWeightedProbe(
+            hidden_dim=hidden_dim,
+            start_layer=start_layer,
+            end_layer=end_layer,
+            device=device,
+        ).to(device)
+        self.diagnoser      = FailureDiagnoser()
+        self.calibrator     = CalibrationLayer(method=calibration_method)
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Adaptive alpha
     # ------------------------------------------------------------------
 
     def _adaptive_alpha(self, credal_ci: CI) -> float:
         """
-        α = α_base × (1 - width),  clamped to [alpha_min, alpha_max].
-
-        Wider credal interval → more uncertainty → lower α → trust I_meta more.
+        α = α_base × (1 − width), clamped to [alpha_min, alpha_max].
+        Wide CI → high uncertainty → lower α → trust neural more.
         """
         alpha = self.alpha_base * (1.0 - credal_ci.width)
         return float(np.clip(alpha, self.alpha_min, self.alpha_max))
 
     # ------------------------------------------------------------------
-    # Single sample
+    # Per-step signal
     # ------------------------------------------------------------------
+
+    def _compute_step(
+        self,
+        step:         ProofStep,
+        evidence_map: Dict[str, RetrievedEvidence],
+        neural:       Optional[NeuralSignals],
+    ) -> StepInconsistencySignal:
+        # 1. Credal CI
+        credal_ci = self.credal_engine.compute_step(step, evidence_map)
+
+        # 2. Neural uncertainty
+        p_inc, epistemic, aleatoric, ev_strength = (0.5, 1.0, 0.5, 0.0)
+        if neural is not None:
+            p_inc, epistemic, aleatoric, ev_strength = self.neural_probe(neural)
+
+        # 3. Combine
+        alpha = self._adaptive_alpha(credal_ci)
+        combined = alpha * credal_ci.midpoint + (1.0 - alpha) * p_inc
+
+        # 4. Disagreement
+        disagreement = abs(credal_ci.midpoint - p_inc)
+
+        # 5. Linked evidence — PHẢI tạo trước diagnose
+        linked_ev = [
+            evidence_map[eid]
+            for eid in step.linked_evidence_ids
+            if eid in evidence_map
+        ]
+
+        # 6. Failure diagnosis
+        failure_type, repair_hint = self.diagnoser.diagnose(
+            step, credal_ci, p_inc, linked_ev
+        )
+
+        # 7. Hard boost for diagnosed failures
+        hard_failures = {
+            FailureType.TEMPORAL,
+            FailureType.LOGICAL,
+            FailureType.CAUSAL,
+            FailureType.MISSING_PREMISE,
+            FailureType.INVALID_INFERENCE,
+        }
+        if failure_type in hard_failures:
+            combined = max(combined, 0.85)
+        elif failure_type == FailureType.NONE:
+            combined = min(combined, 0.25)
+
+        # 8. Trigger sau khi boostpython3 "Master Orchestrator Pipeline (The Brain).py"
+        trigger = (
+            combined > self.mutation_threshold
+            or disagreement > self.disagreement_threshold
+            or failure_type != FailureType.NONE
+        )
+
+        return StepInconsistencySignal(
+            step_id=step.step_id,
+            credal_ci=credal_ci,
+            neural_uncertainty=epistemic,
+            aleatoric=aleatoric,
+            evidence_strength=ev_strength,
+            p_inconsistent=float(combined),
+            disagreement=float(disagreement),
+            error_type=failure_type,
+            trigger=trigger,
+            repair_hint=repair_hint,
+        )
+
+    # ------------------------------------------------------------------
+    # Main entry point: compute()
+    # ------------------------------------------------------------------
+    def compute_tensor_credal_width(self, tensor: torch.Tensor) -> float:
+        """
+        Tensor-level uncertainty proxy used by Component 2.
+        Returns width in [0, 0.99].
+        """
+        with torch.no_grad():
+            x = tensor.float()
+
+            if x.numel() <= 1:
+                return 0.0
+
+            variance = torch.var(x).item()
+            mean_abs = torch.mean(torch.abs(x)).item() + 1e-6
+
+            width = variance / (variance + mean_abs)
+            return float(np.clip(width, 0.0, 0.99))
 
     def compute(
         self,
-        evidence_set: List[RetrievedEvidence],
-        proof_chain:  List[SymbolicProofStep],
-        llm_outputs=None,   # HuggingFace output with output_hidden_states=True
+        evidence_set:   List[RetrievedEvidence],
+        proof_trace:    List[ProofStep],
+        neural_signals: Optional[Dict[str, NeuralSignals]] = None,
+        max_workers:    int = 4,
     ) -> InconsistencySignal:
         """
-        Compute the full inconsistency signal for one (evidence, proof) pair.
+        Compute full step-level inconsistency signal.
 
         Args:
-            evidence_set: from Component 1 (Hybrid Adaptive Retriever).
-            proof_chain:  from Component 2 (Symbolic Engine).
-            llm_outputs:  Llama-3.1-70B forward pass output
-                          (with output_hidden_states=True).
-                          Pass None to skip I_meta (credal-only mode).
+            evidence_set  : All retrieved evidence from Component 1.
+            proof_trace   : Ordered symbolic proof steps from Component 2.
+            neural_signals: Map step_id → NeuralSignals (from LLM forward).
+                            Pass None for credal-only mode.
+            max_workers   : CPU threads for parallel credal computation.
 
         Returns:
             InconsistencySignal
         """
-        # --- Part 1: Credal Inconsistency ---
-        credal_ci, type_scores = self.credal_engine.compute(
-            evidence_set, proof_chain
-        )
-
-        # --- Part 2: Metacognitive Signal ---
-        i_meta_value    = 0.0
-        meta_diagnostics: Dict[str, Any] = {}
-
-        if llm_outputs is not None and hasattr(llm_outputs, "hidden_states"):
-            with torch.no_grad():
-                self.meta_extractor.eval()
-                i_meta_tensor, meta_diagnostics = self.meta_extractor(llm_outputs)
-                i_meta_value = float(i_meta_tensor.mean().item())
-
-        # --- Part 3: Adaptive combination ---
-        alpha    = self._adaptive_alpha(credal_ci)
-        combined = alpha * credal_ci.midpoint + (1.0 - alpha) * i_meta_value
-
-        # --- Part 4: Mutation trigger ---
-        disagreement = abs(credal_ci.midpoint - i_meta_value)
-        trigger = (
-            combined > self.mutation_threshold
-            or disagreement > self.disagreement_threshold
-        )
-
-        # Build diagnostics dict
-        diagnostics: Dict[str, Any] = {
-            "alpha":           alpha,
-            "credal_midpoint": credal_ci.midpoint,
-            "credal_width":    credal_ci.width,
-            "i_meta":          i_meta_value,
-            "combined":        combined,
-            "disagreement":    disagreement,
-        }
-        for key, val in meta_diagnostics.items():
-            if isinstance(val, torch.Tensor):
-                diagnostics[f"meta_{key}"] = val.cpu().numpy().tolist()
-
-        return InconsistencySignal(
-            credal_inconsistency=credal_ci,
-            i_meta=i_meta_value,
-            combined_score=float(combined),
-            type_scores=type_scores,
-            trigger_mutation=trigger,
-            diagnostics=diagnostics,
-        )
-
-    # ------------------------------------------------------------------
-    # Batch computation
-    # FIX-3: credal computation parallelised with ThreadPoolExecutor
-    # ------------------------------------------------------------------
-
-    def compute_batch(
-        self,
-        batch_evidence: List[List[RetrievedEvidence]],
-        batch_proofs:   List[List[SymbolicProofStep]],
-        llm_outputs=None,
-        max_workers:    int = 4,
-    ) -> List[InconsistencySignal]:
-        """
-        Batch computation for MI300X parallelism.
-
-        FIX-3: credal computation is CPU-bound; we run it in parallel
-        with ThreadPoolExecutor.  I_meta is GPU-bound and processed once
-        via a single batched forward pass (if llm_outputs provided).
-
-        Args:
-            batch_evidence: list of evidence lists, one per question.
-            batch_proofs:   list of proof chains, one per question.
-            llm_outputs:    single batched HF output (batch_size = len batch).
-            max_workers:    number of CPU threads for credal computation.
-        """
-        n = len(batch_evidence)
-        assert len(batch_proofs) == n, "batch_evidence and batch_proofs must match"
-
-        # --- GPU path: extract I_meta for entire batch at once ---
-        i_meta_values: List[float] = [0.0] * n
-        if llm_outputs is not None and hasattr(llm_outputs, "hidden_states"):
-            with torch.no_grad():
-                self.meta_extractor.eval()
-                i_meta_tensor, _ = self.meta_extractor(llm_outputs)  # (B,)
-                for idx in range(min(n, i_meta_tensor.shape[0])):
-                    i_meta_values[idx] = float(i_meta_tensor[idx].item())
-
-        # --- CPU path: credal computation in parallel ---
-        credal_results: List[Tuple[CI, Dict]] = [None] * n  # type: ignore
-
-        def _compute_credal(idx: int):
-            return idx, self.credal_engine.compute(
-                batch_evidence[idx], batch_proofs[idx]
+        if not proof_trace:
+            return InconsistencySignal(
+                global_score=0.0,
+                credal_global=CI(0.0, 0.0),
+                step_scores=[],
+                top_failed_steps=[],
+                repair_hint="No proof steps provided.",
+                trigger_mutation=False,
             )
+
+        # Build evidence lookup map
+        evidence_map: Dict[str, RetrievedEvidence] = {
+            ev.evidence_id: ev for ev in evidence_set
+        }
+        ns_map = neural_signals or {}
+
+        # Parallel per-step computation (CPU-bound credal)
+        step_results: List[StepInconsistencySignal] = [None] * len(proof_trace)  # type: ignore
+
+        def _worker(idx: int) -> Tuple[int, StepInconsistencySignal]:
+            step   = proof_trace[idx]
+            neural = ns_map.get(step.step_id, None)
+            return idx, self._compute_step(step, evidence_map, neural)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_compute_credal, i): i for i in range(n)}
+            futures = {executor.submit(_worker, i): i for i in range(len(proof_trace))}
             for future in as_completed(futures):
                 idx, result = future.result()
-                credal_results[idx] = result
+                step_results[idx] = result
 
-        # --- Combine ---
-        signals: List[InconsistencySignal] = []
-        for idx in range(n):
-            credal_ci, type_scores = credal_results[idx]
-            i_meta_value = i_meta_values[idx]
+        # Global credal aggregation
+        step_cis  = [s.credal_ci for s in step_results]
+        global_ci = self.credal_engine.compute_global(step_cis, proof_trace)
 
-            alpha        = self._adaptive_alpha(credal_ci)
-            combined     = alpha * credal_ci.midpoint + (1.0 - alpha) * i_meta_value
-            disagreement = abs(credal_ci.midpoint - i_meta_value)
-            trigger      = (
-                combined > self.mutation_threshold
-                or disagreement > self.disagreement_threshold
-            )
+        # Global score: weighted mean of per-step p_inconsistent
+        global_score = float(np.mean([s.p_inconsistent for s in step_results]))
 
-            signals.append(InconsistencySignal(
-                credal_inconsistency=credal_ci,
-                i_meta=i_meta_value,
-                combined_score=float(combined),
-                type_scores=type_scores,
-                trigger_mutation=trigger,
-                diagnostics={
-                    "alpha":           alpha,
-                    "credal_midpoint": credal_ci.midpoint,
-                    "credal_width":    credal_ci.width,
-                    "i_meta":          i_meta_value,
-                    "combined":        combined,
-                    "disagreement":    disagreement,
-                },
-            ))
+        # Top failed steps: sort by p_inconsistent descending
+        sorted_steps = sorted(step_results, key=lambda s: s.p_inconsistent, reverse=True)
+        top_failed   = [s.step_id for s in sorted_steps if s.trigger]
 
-        return signals# Cần import thêm các thư viện sau ở đầu file
-import torch.nn.functional as F
-from torch.distributions.dirichlet import Dirichlet
-
-# ============================================================================
-# Section 3: Attention-Steered Evidential Extractor (Thay thế MetaCognitiveExtractor)
-# ============================================================================
-
-class AttentionSteeredEvidentialExtractor(nn.Module):
-    """
-    Nâng cấp SOTA:
-    1. Attention-based Probe: Focus vào logical tokens thay vì mean pooling.
-    2. Cross-Layer Dynamics: So sánh layer semantic (vd: 24) và reasoning (vd: 32).
-    3. Evidential Deep Learning (EDL): Trả về tham số Dirichlet alpha thay vì I_meta vô hướng.
-    """
-    def __init__(
-        self,
-        hidden_dim: int = 8192,
-        start_layer: int = 24, # Semantic
-        end_layer: int = 32,   # Reasoning
-        context_dim: int = 1024,
-        device: str = "cuda",
-    ) -> None:
-        super().__init__()
-        self.hidden_dim = hidden_dim
-        self.start_layer = start_layer
-        self.end_layer = end_layer
-        self.device = device
-        
-        # Cross-layer Attention (Học cách nhìn sự mâu thuẫn)
-        self.logic_attention = nn.MultiheadAttention(
-            embed_dim=hidden_dim, num_heads=8, batch_first=True
-        )
-        
-        # Evidential Head (Tạo tham số Dirichlet alpha)
-        # Thay vì sigmoid ra 1 số, ta xuất ra 2 số (evidence_consistent, evidence_inconsistent)
-        self.evidential_head = nn.Sequential(
-            nn.Linear(hidden_dim * 2, 256),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(256, 2),
-            nn.Softplus() # Evidence e_k >= 0
-        )
-        
-        # Differentiable Thresholding (Học ngưỡng dựa trên độ khó context)
-        self.diff_thresh = nn.Sequential(
-            nn.Linear(context_dim, 32),
-            nn.GELU(),
-            nn.Linear(32, 1),
-            nn.Sigmoid()
-        )
-
-    def extract_and_attend(self, hidden_states: Tuple[torch.Tensor], logic_mask: Optional[torch.Tensor] = None):
-        """Cross-Layer Probing thay vì Mean Pooling."""
-        # hidden_states: (B, Seq, Dim)
-        semantic_state = hidden_states[self.start_layer]
-        reasoning_state = hidden_states[self.end_layer]
-        
-        # Nếu có mask của các token "if", "not", "because", dùng nó để guide attention
-        attn_mask = ~logic_mask if logic_mask is not None else None
-        
-        # Reasoning attend vào Semantic để tìm mâu thuẫn logic
-        context_aware_state, _ = self.logic_attention(
-            query=reasoning_state,
-            key=semantic_state,
-            value=semantic_state,
-            key_padding_mask=attn_mask
-        )
-        
-        # Pool lấy token cuối cùng mang tính chất tóm lược (hoặc mean pooling có trọng số)
-        pooled_reasoning = reasoning_state[:, -1, :]
-        pooled_context = context_aware_state[:, -1, :]
-        
-        # Nối lại tạo vector mâu thuẫn cross-layer
-        return torch.cat([pooled_reasoning, pooled_context], dim=-1)
-
-    def forward(self, model_outputs, context_embed, logic_mask=None):
-        hidden_states = model_outputs.hidden_states
-        features = self.extract_and_attend(hidden_states, logic_mask)
-        
-        # Tính Dirichlet Alphas: alpha_k = e_k + 1
-        evidence = self.evidential_head(features)
-        alphas = evidence + 1.0
-        
-        # Tính Epistemic Uncertainty & Aleatoric
-        S = torch.sum(alphas, dim=-1, keepdim=True)
-        epistemic_uncertainty = 2.0 / S # Bất định bậc 2
-        p_inconsistent = alphas[..., 1:2] / S # Xác suất lỗi
-        
-        dyn_threshold = self.diff_thresh(context_embed)
-        
-        return p_inconsistent.squeeze(-1), epistemic_uncertainty.squeeze(-1), features, dyn_threshold
-
-# ============================================================================
-# Section 4: Contrastive Evidential Trainer (Thay thế LRAxisTrainer)
-# ============================================================================
-
-class ContrastiveEvidentialTrainer:
-    """
-    Sử dụng Contrastive Inconsistency Learning (CIL) với Triplet Loss.
-    Ép mô hình hiểu được lỗi logic tinh vi (Subtle Fallacies).
-    """
-    def __init__(self, meta_extractor: AttentionSteeredEvidentialExtractor, device: str = "cuda"):
-        self.extractor = meta_extractor
-        self.device = device
-        self.triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2)
-
-    def compute_edl_loss(self, alphas: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """Loss function cho Evidential Deep Learning (Type II Maximum Likelihood)"""
-        S = torch.sum(alphas, dim=-1, keepdim=True)
-        # NCE Loss
-        loss_err = torch.sum(labels * (torch.digamma(S) - torch.digamma(alphas)), dim=-1)
-        # KL Divergence term (phạt mô hình nếu tự tin mù quáng vào data ngoài phân phối)
-        # ... (Rút gọn KL Divergence implementation)
-        return loss_err.mean()
-
-    def train_step(self, anchor_hs, pos_hs, neg_hs, anchor_ctx, labels):
-        self.extractor.train()
-        
-        # 1. Forward 3 nhánh để lấy features
-        _, _, feat_anchor, _ = self.extractor(anchor_hs, anchor_ctx)
-        _, _, feat_pos, _ = self.extractor(pos_hs, anchor_ctx) # Pos: Lỗi logic tinh vi
-        _, _, feat_neg, _ = self.extractor(neg_hs, anchor_ctx) # Neg: Proof hoàn toàn đúng
-        
-        # 2. Triplet Loss để tách feature space
-        loss_contrastive = self.triplet_loss(feat_anchor, feat_pos, feat_neg)
-        
-        # 3. EDL Loss để học alphas
-        alphas = self.extractor.evidential_head(feat_anchor) + 1.0
-        loss_edl = self.compute_edl_loss(alphas, labels)
-        
-        return loss_contrastive + 0.5 * loss_edl
-
-# ============================================================================
-# Section 5: SOTA Probabilistic Inconsistency Signal
-# ============================================================================
-
-def sinkhorn_wasserstein(M: torch.Tensor, r: torch.Tensor, c: torch.Tensor, reg: float = 0.1, iters: int = 20):
-    """Tính Optimal Transport (S2A Alignment Score)"""
-    K = torch.exp(-M / reg)
-    u = torch.ones_like(r)
-    v = torch.ones_like(c)
-    for _ in range(iters):
-        u = r / (torch.matmul(K, v) + 1e-8)
-        v = c / (torch.matmul(K.transpose(-2, -1), u) + 1e-8)
-    T = u.unsqueeze(-1) * K * v.unsqueeze(-2)
-    return torch.sum(T * M, dim=(-2, -1))
-
-class ProbabilisticInconsistencySignal:
-    def __init__(self, alpha_base=0.6, aggregation="markov", device=torch.device("cuda" if torch.cuda.is_available() else "cpu")):
-        self.alpha_base = alpha_base
-        self.device = device
-        self.credal_engine = CredalInconsistencyEngine(aggregation=aggregation)
-        self.meta_extractor = AttentionSteeredEvidentialExtractor(device=device).to(device)
-        self.stability_counter = 0 # Quản lý Full Reset
-
-    def _explain_inconsistency(self, p_inc: float, epistemic: float, s2a_gap: float, credal_mid: float) -> str:
-        """Module giải thích Explainable Inconsistency"""
-        explanations = []
-        if epistemic > 0.5:
-            explanations.append("High Epistemic Uncertainty: LLM chưa từng gặp cấu trúc logic này.")
-        if s2a_gap > 0.4:
-            explanations.append("S2A Alignment Fail: Luồng chú ý của LLM lệch khỏi Symbolic Graph.")
-        if credal_mid > 0.7:
-            explanations.append("Credal Collision: Bằng chứng truy xuất được hoàn toàn trái ngược với các tiên đề logic.")
-        return " | ".join(explanations) if explanations else "Reasoning stream stable."
-
-    def compute(
-        self,
-        evidence_set: List[RetrievedEvidence],
-        proof_chain: List[SymbolicProofStep],
-        llm_outputs, 
-        context_embed,
-        symbolic_adj_matrix, # Cần thêm vào input
-        llm_attention_matrix, # Cần thêm vào input
-        ensemble_preds: Optional[torch.Tensor] = None # Lấy từ MI300X Multi-GPU Dropout
-    ):
-        # 1. Credal Signal (Bất định bậc một từ data)
-        credal_ci, type_scores = self.credal_engine.compute(evidence_set, proof_chain)
-        
-        # 2. Metacognitive Signal (Bất định bậc hai từ model)
-        p_inc = 0.0
-        epistemic = 0.0
-        dyn_thresh = 0.5
-        
-        if llm_outputs is not None:
-            with torch.no_grad():
-                self.meta_extractor.eval()
-                p_inc_tensor, epis_tensor, _, thresh_tensor = self.meta_extractor(llm_outputs, context_embed)
-                p_inc = p_inc_tensor.item()
-                epistemic = epis_tensor.item()
-                dyn_thresh = thresh_tensor.item()
-
-        # 3. S2A (Optimal Transport)
-        s2a_gap = 0.0
-        if symbolic_adj_matrix is not None and llm_attention_matrix is not None:
-            M = torch.cdist(symbolic_adj_matrix, llm_attention_matrix)
-            r = torch.ones(M.size(-2), device=self.device) / M.size(-2)
-            c = torch.ones(M.size(-1), device=self.device) / M.size(-1)
-            s2a_gap = sinkhorn_wasserstein(M, r, c).item()
-
-        # 4. Hardware-Aware MI (MI300X Deep Ensembles)
-        hw_entropy = 0.0
-        if ensemble_preds is not None:
-            mean_pred = torch.mean(ensemble_preds, dim=0)
-            entropy_of_mean = - (mean_pred * torch.log(mean_pred + 1e-8) + (1-mean_pred) * torch.log(1-mean_pred + 1e-8))
-            mean_of_entropies = torch.mean(- (ensemble_preds * torch.log(ensemble_preds + 1e-8) + (1-ensemble_preds) * torch.log(1-ensemble_preds + 1e-8)))
-            hw_entropy = (entropy_of_mean - mean_of_entropies).item() # Mutual Information
-
-        # 5. Adaptive Combination & Trigger Logic
-        # Sử dụng Dynamic Threshold đã học được
-        alpha = self.alpha_base * (1.0 - credal_ci.width)
-        combined = (alpha * credal_ci.midpoint) + ((1 - alpha) * p_inc) + (0.1 * s2a_gap) + (0.1 * hw_entropy)
-        
-        disagreement = abs(credal_ci.midpoint - p_inc)
-        trigger = (combined > dyn_thresh) or (disagreement > 0.4)
-
-        # 6. Stability Metric & Full Reset
-        if trigger:
-            self.stability_counter += 1
+        # Consolidated repair hint: highest-priority failed step
+        if top_failed:
+            primary = next(s for s in sorted_steps if s.step_id == top_failed[0])
+            repair_hint = primary.repair_hint
         else:
-            self.stability_counter = 0
-            
-        force_reset = self.stability_counter >= 3
+            repair_hint = "All proof steps within acceptable inconsistency bounds."
 
-        explanation = self._explain_inconsistency(p_inc, epistemic, s2a_gap, credal_ci.midpoint)
+        trigger_global = global_score > self.mutation_threshold or bool(top_failed)
 
         return InconsistencySignal(
-            credal_inconsistency=credal_ci,
-            i_meta=p_inc, # i_meta giờ là expectation probability
-            combined_score=float(combined),
-            type_scores=type_scores,
-            trigger_mutation=trigger,
+            global_score=global_score,
+            credal_global=global_ci,
+            step_scores=step_results,
+            top_failed_steps=top_failed,
+            repair_hint=repair_hint,
+            trigger_mutation=trigger_global,
             diagnostics={
-                "epistemic_uncertainty": epistemic,
-                "s2a_alignment_gap": s2a_gap,
-                "hardware_mi": hw_entropy,
-                "dynamic_threshold": dyn_thresh,
-                "explanation": explanation,
-                "trigger_full_reset": force_reset
-            }
+                "n_steps":         len(proof_trace),
+                "n_triggered":     len(top_failed),
+                "credal_global":   str(global_ci),
+                "step_details":    [
+                    {
+                        "step_id":     s.step_id,
+                        "credal_ci":   str(s.credal_ci),
+                        "p_inc":       round(s.p_inconsistent, 4),
+                        "epistemic":   round(s.neural_uncertainty, 4),
+                        "aleatoric":   round(s.aleatoric, 4),
+                        "ev_strength": round(s.evidence_strength, 4),
+                        "error_type":  s.error_type.value,
+                        "trigger":     s.trigger,
+                    }
+                    for s in step_results
+                ],
+            },
         )
-    def compute_tensor_credal_width(self, tensor_data):
-            if isinstance(tensor_data, torch.Tensor):
-                return (tensor_data.max() - tensor_data.min()).item()
-            return 0.0 
+
+    # ------------------------------------------------------------------
+    # Calibration interface
+    # ------------------------------------------------------------------
+
+    def fit_calibration(
+        self,
+        dev_logits: np.ndarray,
+        dev_labels: np.ndarray,
+    ) -> Dict[str, float]:
+        """
+        Fit calibration on dev-set logits and report ECE/Brier/AUROC.
+
+        dev_logits : raw combined_score (pre-sigmoid) for each dev sample
+        dev_labels : ground-truth {0: consistent, 1: inconsistent}
+        """
+        self.calibrator.fit(dev_logits, dev_labels)
+        probs = self.calibrator.calibrate(dev_logits)
+        return self.calibrator.evaluate(probs, dev_labels)
+
+    def calibrate_score(self, raw_score: float) -> float:
+        """Apply fitted calibration to a single raw score."""
+        probs = self.calibrator.calibrate(np.array([raw_score]))
+        return float(probs[0])
+
+    # ------------------------------------------------------------------
+    # Failure localization helper (for Component 4 / Component 1)
+    # ------------------------------------------------------------------
+
+    def diagnose_failure(
+        self,
+        signal: InconsistencySignal,
+    ) -> Dict[str, Any]:
+        """
+        Summarise failure localization from an InconsistencySignal.
+
+        Returns a dict ready to be consumed by Component 1 replan or
+        Component 4 mutation selection.
+
+        Keys:
+          failed_steps       : List[dict] with step_id, error_type, repair_hint
+          dominant_failure   : most frequent FailureType among triggered steps
+          replan_targets     : step_ids that Component 1 should re-retrieve for
+          mutation_priority  : step_ids ranked for Component 4 to mutate first
+        """
+        triggered = [s for s in signal.step_scores if s.trigger]
+        if not triggered:
+            return {
+                "failed_steps":     [],
+                "dominant_failure": FailureType.NONE.value,
+                "replan_targets":   [],
+                "mutation_priority": [],
+            }
+
+        # Dominant failure type
+        type_counts: Dict[str, int] = {}
+        for s in triggered:
+            type_counts[s.error_type.value] = type_counts.get(s.error_type.value, 0) + 1
+        dominant = max(type_counts, key=type_counts.__getitem__)
+
+        # Replan targets: steps needing new retrieval
+        retrieval_types = {
+            FailureType.FACTUAL.value,
+            FailureType.MISSING_PREMISE.value,
+            FailureType.TEMPORAL.value,
+        }
+        replan_targets = [
+            s.step_id for s in triggered
+            if s.error_type.value in retrieval_types
+        ]
+
+        # Mutation priority: ranked by p_inconsistent
+        mutation_priority = [
+            s.step_id for s in sorted(triggered,
+                                       key=lambda x: x.p_inconsistent,
+                                       reverse=True)
+        ]
+
+        return {
+            "failed_steps": [
+                {
+                    "step_id":    s.step_id,
+                    "error_type": s.error_type.value,
+                    "p_inc":      round(s.p_inconsistent, 4),
+                    "repair":     s.repair_hint,
+                }
+                for s in triggered
+            ],
+            "dominant_failure":   dominant,
+            "replan_targets":     replan_targets,
+            "mutation_priority":  mutation_priority,
+        }
+
+
+# ============================================================================
+# Section 7: Offline LR-Axis / EDL Trainer
+# ============================================================================
+
+class EDLProbeTrainer:
+    """
+    Offline trainer for UncertaintyWeightedProbe's EDL head.
+
+    Dataset: List of (NeuralSignals, label) where label ∈ {0: consistent,
+    1: inconsistent}.
+
+    Loss = EDL Type II Maximum Likelihood + KL regularisation.
+    """
+
+    def __init__(
+        self,
+        probe:   UncertaintyWeightedProbe,
+        device:  str = "cuda",
+    ) -> None:
+        self.probe  = probe
+        self.device = device
+
+    @staticmethod
+    def _edl_loss(
+        evidence: torch.Tensor,   # (B, C)
+        labels:   torch.Tensor,   # (B,) ∈ {0, 1}
+        n_classes: int = 2,
+        kl_weight: float = 0.1,
+    ) -> torch.Tensor:
+        """
+        EDL loss (Sensoy et al. 2018, adapted for binary case):
+          L = Σ_k y_k [ψ(S) − ψ(alpha_k)] + KL(Dir(ã) || Dir(1))
+
+        where ã removes evidence for ground-truth class to avoid
+        over-regularising correct predictions.
+        """
+        alpha  = evidence + 1.0                           # (B, C)
+        S      = alpha.sum(dim=-1, keepdim=True)          # (B, 1)
+
+        # One-hot labels
+        y = F.one_hot(labels.long(), num_classes=n_classes).float()  # (B, C)
+
+        # MSE-style NLL
+        err_sq = (y - alpha / S) ** 2
+        var    = alpha * (S - alpha) / (S ** 2 * (S + 1))
+        nll    = (err_sq + var).sum(dim=-1).mean()
+
+        # KL divergence term
+        alpha_tilde = y + (1.0 - y) * alpha               # (B, C)
+        S_tilde     = alpha_tilde.sum(dim=-1, keepdim=True)
+        kl = (
+            torch.lgamma(S_tilde)
+            - torch.lgamma(torch.tensor(float(n_classes)))
+            - torch.lgamma(alpha_tilde).sum(dim=-1, keepdim=True)
+            + ((alpha_tilde - 1) *
+               (torch.digamma(alpha_tilde) - torch.digamma(S_tilde))).sum(dim=-1, keepdim=True)
+        ).mean()
+
+        return nll + kl_weight * kl
+
+    def train(
+        self,
+        dataset:   List[Tuple[NeuralSignals, int]],
+        n_epochs:  int   = 50,
+        lr:        float = 1e-3,
+        batch_size: int  = 16,
+    ) -> None:
+        """Train the EDL head on labelled (NeuralSignals, label) pairs."""
+        optimizer = torch.optim.Adam(
+            self.probe.edl_head.parameters(), lr=lr, weight_decay=1e-5
+        )
+
+        self.probe.train()
+        for epoch in range(n_epochs):
+            total_loss = 0.0
+            indices = list(range(len(dataset)))
+            np.random.shuffle(indices)
+
+            for start in range(0, len(indices), batch_size):
+                batch_idx  = indices[start: start + batch_size]
+                batch_data = [dataset[i] for i in batch_idx]
+
+                features_list = []
+                labels_list   = []
+
+                for neural, label in batch_data:
+                    if neural.hidden_states is None:
+                        continue
+
+                    hs    = neural.hidden_states
+                    n_lay = len(hs)
+
+                    def _safe(idx):
+                        return hs[min(idx, n_lay - 1)][0]  # (seq, dim)
+
+                    h_sem = _safe(self.probe.start_layer)
+                    h_rea = _safe(self.probe.end_layer)
+                    logp  = neural.token_logprobs
+
+                    v_sem = UncertaintyWeightedProbe._uncertainty_weighted_pool(h_sem, logp)
+                    v_rea = UncertaintyWeightedProbe._uncertainty_weighted_pool(h_rea, logp)
+                    v_del = v_rea - v_sem
+
+                    feat = torch.cat([v_sem, v_rea, v_del], dim=0)
+                    features_list.append(feat.to(self.device))
+                    labels_list.append(label)
+
+                if not features_list:
+                    continue
+
+                feats  = torch.stack(features_list, dim=0)     # (B, 3*dim)
+                labels = torch.tensor(labels_list, dtype=torch.long, device=self.device)
+
+                evidence = self.probe.edl_head(feats)          # (B, C)
+                loss     = self._edl_loss(evidence, labels)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+            if (epoch + 1) % 10 == 0:
+                logger.info(
+                    "EDL training epoch %d/%d  loss=%.4f",
+                    epoch + 1, n_epochs,
+                    total_loss / max(len(dataset) // batch_size, 1),
+                )
+
+        self.probe.eval()
+        logger.info("EDL probe training complete.")

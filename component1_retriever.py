@@ -1,186 +1,332 @@
-"""
-Component 1: Active Reasoner Retriever (SOTA 2026 Paradigm)
-MC-NSR Framework — Meta-Cognitive Neuro-Symbolic Reasoning
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.amp import autocast
-
 import numpy as np
 import json
 import logging
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import dataclass, field, asdict
 from typing import Optional, List, Dict, Tuple, Any
 
-from transformers import AutoTokenizer, AutoModel
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | PIS-Planner | %(message)s")
+logger = logging.getLogger("atomic_planner")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(name)s | %(message)s")
-logger = logging.getLogger("mc_nsr.active_reasoner")
-
+# =====================================================================
+# 1. DATA STRUCTURES (PIS-ALIGNED)
+# =====================================================================
 
 @dataclass
-class ActiveReasonerConfig:
-    model_name: str = "meta-llama/Llama-3.1-8B"
-    llm_model_name: str = "meta-llama/Llama-3.1-8B"  # FIX: alias để tránh AttributeError
-    llm_dtype: torch.dtype = torch.float8_e4m3fn
-    use_flash_attention: bool = True
-    max_seq_len: int = 4096
-    hidden_size: int = 4096        # Mặc định của Llama 3 8B — chiều ra của LLM backbone
-    projection_dim: int = 128      # ColBERT nén từ 4096 -> 128 chiều để so sánh vector hiệu quả
-    token_dim: int = 128
-    top_k_doc: int = 50
-    top_k_chunk: int = 20
-    top_k_final: int = 5
-    max_iterations: int = 3
-    credal_width_threshold: float = 0.2
-    device: str = "cuda"  # ROCm của AMD MI300X expose qua "cuda" interface — giữ nguyên
+class ConfidenceCI:
+    lower: float
+    upper: float
 
+    def to_dict(self):
+        return {"lower": round(self.lower, 4), "upper": round(self.upper, 4)}
 
-class MultiSourceRetriever:
-    """
-    Quản lý đồng thời Text Hierarchical (Doc -> Sentence) và Graph Entities.
-    """
-    def __init__(self):
-        self.documents: Dict[int, str] = {}
-        self.chunks: Dict[int, Tuple[int, str]] = {}
-        self.metadata: Dict[int, Any] = {}
-        self.graph_edges: Dict[str, List[Tuple[str, str]]] = {}
+@dataclass
+class NeuralSignals:
+    token_logprobs: List[float]
+    step_entropy: float
+    pooled_hidden: Optional[torch.Tensor] = None # Tensor không dump JSON trực tiếp được
 
-    def add_document(self, doc_id: int, text: str, metadata: dict, triples: List[Tuple[str, str, str]]):
-        self.documents[doc_id] = text
-        self.metadata[doc_id] = metadata
-        sentences = text.split(". ")
-        for i, sent in enumerate(sentences):
-            chunk_id = hash(f"{doc_id}_{i}")
-            self.chunks[chunk_id] = (doc_id, sent)
-        for subj, pred, obj in triples:
-            if subj not in self.graph_edges:
-                self.graph_edges[subj] = []
-            self.graph_edges[subj].append((pred, obj))
-
-    def retrieve_paths(self, entity: str, max_depth: int = 2) -> List[str]:
-        return [f"{entity} -> {pred} -> {obj}" for pred, obj in self.graph_edges.get(entity, [])]
-
-
-class LateInteractionEncoder(nn.Module):
-    def __init__(self, cfg: ActiveReasonerConfig):
-        super().__init__()
-        self.cfg = cfg
-        attn_impl = "flash_attention_2" if cfg.use_flash_attention else "eager"
-        self.model = AutoModel.from_pretrained(
-            cfg.model_name,
-            torch_dtype=torch.bfloat16,  # bfloat16 cực hợp với AMD MI300X
-            device_map="auto",
-            trust_remote_code=True
-        )
-        self.linear_compress = nn.Linear(self.model.config.hidden_size, cfg.token_dim, dtype=torch.bfloat16)
-        self.linear_compress.to(cfg.device)  # Ép linear_compress lên GPU — tránh device mismatch với Llama
-        self.model = torch.compile(self.model)
-
-    def forward(self, input_ids, attention_mask) -> torch.Tensor:
-        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-        hidden = outputs.last_hidden_state.to(torch.bfloat16)
-        token_embs = F.normalize(self.linear_compress(hidden), p=2, dim=-1)
-        return token_embs
-
-    @staticmethod
-    def maxsim(q_embs: torch.Tensor, d_embs: torch.Tensor, q_mask: torch.Tensor) -> torch.Tensor:
-        interaction_matrix = torch.einsum("b q d, n c d -> b n q c", q_embs, d_embs)
-        max_scores = interaction_matrix.max(dim=-1).values
-        scores = (max_scores * q_mask.unsqueeze(1)).sum(dim=-1)
-        return scores
-
-
-class NeuroSymbolicReranker(nn.Module):
-    def __init__(self, token_dim: int):
-        super().__init__()
-        self.cross_attention = nn.MultiheadAttention(token_dim, num_heads=4, batch_first=True)
-        self.logic_prob_head = nn.Sequential(
-            nn.Linear(token_dim, token_dim // 2),
-            nn.GELU(),
-            nn.Linear(token_dim // 2, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, query_embs: torch.Tensor, chunk_embs: torch.Tensor) -> torch.Tensor:
-        attn_out, _ = self.cross_attention(query_embs, chunk_embs, chunk_embs)
-        pooled = attn_out.mean(dim=1)
-        return self.logic_prob_head(pooled).squeeze(-1)
-
-
-class MemoryBuffer:
-    def __init__(self):
-        self.explored_paths = set()
-        self.retrieved_chunks = []
-        self.information_gaps = []
-
-    def update(self, chunks: List[str], current_query: str):
-        self.retrieved_chunks.extend(chunks)
-        self.explored_paths.add(current_query)
-
-class ActiveReasonerRetriever:
-    def __init__(self, cfg: ActiveReasonerConfig):
-        self.cfg = cfg
-        self.index = []
-        self.encoder = LateInteractionEncoder(cfg).to(cfg.device)  # Đảm bảo toàn bộ encoder lên GPU
-        self.reranker = NeuroSymbolicReranker(cfg.token_dim).to(cfg.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model_name)  # dùng llm_model_name
-        logger.info("Active Reasoner initialized with FP8, FA3, and ColBERT-v4 paradigm.")
-
-    def decompose_query(self, query: str, memory: MemoryBuffer) -> List[str]:
-        logger.warning("Credal width too high! Decomposing query...")
-        return [f"What is the underlying mechanism of {query}?", 
-                f"Are there temporal constraints regarding {query}?"]
-
-    def step_retrieve(self, query: str, memory: MemoryBuffer) -> List[Tuple[int, float]]:
-        q_enc = self.tokenizer(query, return_tensors="pt").to(self.cfg.device)
-        with torch.no_grad():
-            q_embs = self.encoder(q_enc.input_ids, q_enc.attention_mask)
-        N_chunks = 1000
-        mock_d_embs = torch.randn(N_chunks, 64, self.cfg.projection_dim, device=self.cfg.device, dtype=torch.bfloat16)
-        scores = self.encoder.maxsim(q_embs, mock_d_embs, q_enc.attention_mask)
-        top_ids = scores[0].topk(self.cfg.top_k_chunk).indices.tolist()
-        return top_ids
-
-    def retrieve(self, initial_query: str, credal_width: float = 0.0, top_k: Optional[int] = None, negative_constraint: bool = False) -> Dict[str, Any]:
-        memory = MemoryBuffer()
-        current_queries = [initial_query]
-        final_results = []
-        
-        for iteration in range(self.cfg.max_iterations):
-            logger.info(f"--- Iteration {iteration+1} ---")
-            iteration_chunks = []
-            for q in current_queries:
-                chunk_ids = self.step_retrieve(q, memory)
-                iteration_chunks.extend(chunk_ids) 
-            memory.update([str(c) for c in iteration_chunks], " | ".join(current_queries))
-            if credal_width > self.cfg.credal_width_threshold and iteration < self.cfg.max_iterations - 1:
-                current_queries = self.decompose_query(initial_query, memory)
-                credal_width -= 0.1 
-            else:
-                final_results = iteration_chunks[:self.cfg.top_k_final]
-                break
-
+    def to_dict(self):
         return {
-            "retrieved_nodes": final_results,
-            "memory_trace": memory.explored_paths,
-            "final_credal_width": credal_width
+            "token_logprobs": [round(p, 4) for p in self.token_logprobs],
+            "step_entropy": round(self.step_entropy, 4)
         }
 
-    def retrieve_with_negative_constraint(self, existing_evidence: Any) -> Any:
-        """Tìm kiếm hướng ngược lại với evidence hiện tại (dùng cho Deep-Dive recovery)."""
-        logger.info("Retrieving with negative constraint against existing evidence...")
-        return self.retrieve(f"NOT {str(existing_evidence)}", credal_width=0.0)
+@dataclass
+class AtomicStep:
+    step_id: str
+    action: str
+    entity_args: Dict[str, Any]
+    expected_evidence: str
+    source_refs: List[int]
+    confidence_ci: ConfidenceCI
+    neural_signals: NeuralSignals
+    parent_step_ids: List[str]
+
+    def to_dict(self):
+        d = asdict(self)
+        d['confidence_ci'] = self.confidence_ci.to_dict()
+        d['neural_signals'] = self.neural_signals.to_dict()
+        return d
+
+@dataclass
+class PlanCandidate:
+    candidate_id: str
+    atomic_steps: List[AtomicStep]
+    evidence_set: Dict[int, str]
+    trace: List[str]
+    
+    def to_dict(self):
+        return {
+            "candidate_id": self.candidate_id,
+            "atomic_steps": [step.to_dict() for step in self.atomic_steps],
+            "evidence_set": self.evidence_set,
+            "trace": self.trace
+        }
+
+@dataclass
+class PISReport:
+    failed_step_id: str
+    error_type: str  # e.g., "Hallucination", "Missing_Entity", "Logic_Contradiction"
+    constraint: str  # e.g., "Must verify mechanism A before B"
+
+# =====================================================================
+# 2. ATOMIC PLANNER-RETRIEVER CORE
+# =====================================================================
+
+class AtomicPlannerRetriever:
+    def __init__(self, device="cuda", log_file="pis_experiments.jsonl"):
+        self.device = device
+        self.log_file = log_file
+        
+        # Real Index Buffer thay cho mock_d_embs
+        self.corpus_chunks: Dict[int, str] = {}
+        self.chunk_embeddings: Optional[torch.Tensor] = None
+        self.chunk_ids_map: List[int] = []
+        
+        # Encoder (Giả định LateInteractionEncoder đã khởi tạo từ code cũ)
+        # self.encoder = LateInteractionEncoder(cfg).to(device)
+        logger.info(f"Atomic Planner initialized. Logging to {self.log_file}")
+
+    # ---------------------------------------------------------
+    # INDEXING: Real chunk handling
+    # ---------------------------------------------------------
+    def add_corpus(self, documents: List[Tuple[int, str]]):
+        """Thêm dữ liệu vào index"""
+        for doc_id, text in documents:
+            self.corpus_chunks[doc_id] = text
+        logger.info(f"Added {len(documents)} chunks to corpus.")
+
+    def encode_chunks(self, batch_size=32):
+        """Mã hóa toàn bộ corpus thành Dense/ColBERT Tensors"""
+        logger.info("Encoding corpus chunks to tensor index...")
+        self.chunk_ids_map = list(self.corpus_chunks.keys())
+        
+        # MOCK: Tự tạo embedding thay vì gọi LLM thật để demo
+        num_chunks = len(self.chunk_ids_map)
+        if num_chunks > 0:
+            # Chiều embedding 128 (token_dim)
+            self.chunk_embeddings = torch.randn(num_chunks, 128, device=self.device)
+            self.chunk_embeddings = F.normalize(self.chunk_embeddings, p=2, dim=-1)
+
+    # ---------------------------------------------------------
+    # NEURAL UNCERTAINTY & CONFIDENCE
+    # ---------------------------------------------------------
+    def extract_neural_signals(self, llm_outputs: Any = None) -> NeuralSignals:
+        """
+        Lấy tín hiệu thần kinh từ Output của LLM.
+        Mock: Nếu chưa có LLM, sinh giá trị entropy và logprobs hợp lý.
+        """
+        # Giả lập token logprobs dao động từ -0.1 đến -2.0
+        mock_logprobs = np.random.uniform(-1.5, -0.01, size=10).tolist()
+        # Entropy = -sum(p * log(p)) -> mô phỏng mức độ phân vân của mô hình
+        mock_entropy = float(np.abs(np.mean(mock_logprobs)) * 1.5) 
+        
+        return NeuralSignals(
+            token_logprobs=mock_logprobs,
+            step_entropy=mock_entropy,
+            pooled_hidden=torch.zeros(128, device=self.device) # Mock hidden state
+        )
+
+    def _calibrate_confidence(self, base_score: float, entropy: float) -> ConfidenceCI:
+        """Chuyển đổi điểm số + entropy thành Confidence Interval (CI) cho Component 3"""
+        # Entropy cao -> margin rộng. Entropy thấp -> margin hẹp
+        margin = min(0.4, entropy * 0.2) 
+        lower = max(0.0, base_score - margin)
+        upper = min(1.0, base_score + margin)
+        return ConfidenceCI(lower=lower, upper=upper)
+
+    # ---------------------------------------------------------
+    # RETRIEVAL FOR SPECIFIC STEP
+    # ---------------------------------------------------------
+    def retrieve_for_step(self, expected_evidence: str, step_entropy: float, top_k=3) -> Tuple[List[int], ConfidenceCI]:
+        """Tìm kiếm evidence cho MỘT step cụ thể, không phải query chung."""
+        if self.chunk_embeddings is None or len(self.chunk_ids_map) == 0:
+            return [], ConfidenceCI(0.0, 0.0)
+
+        # MOCK: Tạo vector cho expected_evidence
+        q_emb = torch.randn(128, device=self.device)
+        q_emb = F.normalize(q_emb, p=2, dim=-1)
+
+        # Tính dot product (hoặc maxsim nếu dùng ColBERT)
+        scores = torch.matmul(self.chunk_embeddings, q_emb)
+        top_scores, top_idx = torch.topk(scores, min(top_k, len(self.chunk_ids_map)))
+        
+        retrieved_ids = [self.chunk_ids_map[i.item()] for i in top_idx]
+        mean_score = float(top_scores.mean().item())
+        
+        # Calibrate CI dựa trên score và step entropy
+        ci = self._calibrate_confidence(mean_score, step_entropy)
+        
+        return retrieved_ids, ci
+
+    # ---------------------------------------------------------
+    # PLAN GENERATION & PIS INTEGRATION
+    # ---------------------------------------------------------
+    def generate_atomic_plans(self, question: str, n_samples=5, temperature=0.7) -> List[PlanCandidate]:
+        """Sinh nhiều giả thuyết kế hoạch khác nhau (Experiment setup)."""
+        logger.info(f"Generating {n_samples} plan candidates for: '{question}' (T={temperature})")
+        candidates = []
+        
+        for i in range(n_samples):
+            candidate_id = f"plan_{uuid.uuid4().hex[:6]}"
+            steps = []
+            evidence_set = {}
+            
+            # Giả lập LLM sinh ra 3 atomic steps
+            parent_ids = []
+            for step_idx in range(3):
+                step_id = f"step_{step_idx+1}"
+                expected_ev = f"Concept {step_idx} related to {question}"
+                
+                # Trích xuất tín hiệu LLM
+                neural_sigs = self.extract_neural_signals()
+                
+                # Tự động retrieve evidence cho step này ngay khi sinh ra
+                source_refs, ci = self.retrieve_for_step(expected_ev, neural_sigs.step_entropy)
+                
+                # Lưu evidence text
+                for ref in source_refs:
+                    evidence_set[ref] = self.corpus_chunks.get(ref, "")
+
+                step = AtomicStep(
+                    step_id=step_id,
+                    action="EXTRACT_RELATION" if step_idx == 0 else "VERIFY_LOGIC",
+                    entity_args={"subject": "Entity_A", "target": "Entity_B"},
+                    expected_evidence=expected_ev,
+                    source_refs=source_refs,
+                    confidence_ci=ci,
+                    neural_signals=neural_sigs,
+                    parent_step_ids=parent_ids.copy()
+                )
+                steps.append(step)
+                parent_ids.append(step_id)
+
+            candidate = PlanCandidate(
+                candidate_id=candidate_id,
+                atomic_steps=steps,
+                evidence_set=evidence_set,
+                trace=[f"Generated step {s.step_id}" for s in steps]
+            )
+            candidates.append(candidate)
+            
+        return candidates
+
+    def replan_from_pis(self, original_plan: PlanCandidate, pis_report: PISReport) -> PlanCandidate:
+        """
+        Nhận feedback từ PIS. Cắt bỏ từ bước lỗi và chỉ regenerate phần sau.
+        """
+        logger.warning(f"Replanning candidate {original_plan.candidate_id} due to PIS feedback on {pis_report.failed_step_id}. Error: {pis_report.error_type}")
+        
+        # Tìm index của bước lỗi
+        failed_idx = next((i for i, s in enumerate(original_plan.atomic_steps) if s.step_id == pis_report.failed_step_id), None)
+        
+        if failed_idx is None:
+            logger.error("Failed step ID not found in plan.")
+            return original_plan
+
+        # Giữ lại các bước TRƯỚC bước lỗi
+        new_steps = original_plan.atomic_steps[:failed_idx]
+        new_trace = original_plan.trace[:failed_idx]
+        new_trace.append(f"REPLAN_TRIGGERED at {pis_report.failed_step_id} with constraint: {pis_report.constraint}")
+        
+        # MOCK: Sinh ra 1 bước mới sửa lỗi
+        new_step_id = f"{pis_report.failed_step_id}_fixed"
+        expected_ev = f"Fixed evidence incorporating constraint: {pis_report.constraint}"
+        neural_sigs = self.extract_neural_signals()
+        
+        # Do có constraint từ PIS, thường mô hình sẽ chắc chắn hơn -> entropy giảm
+        neural_sigs.step_entropy *= 0.5 
+        
+        source_refs, ci = self.retrieve_for_step(expected_ev, neural_sigs.step_entropy)
+        
+        fixed_step = AtomicStep(
+            step_id=new_step_id,
+            action="APPLY_CONSTRAINT",
+            entity_args={"constraint": pis_report.constraint},
+            expected_evidence=expected_ev,
+            source_refs=source_refs,
+            confidence_ci=ci,
+            neural_signals=neural_sigs,
+            parent_step_ids=[s.step_id for s in new_steps]
+        )
+        new_steps.append(fixed_step)
+        new_trace.append(f"Generated fixed step {new_step_id}")
+
+        original_plan.atomic_steps = new_steps
+        original_plan.trace = new_trace
+        for ref in source_refs:
+             original_plan.evidence_set[ref] = self.corpus_chunks.get(ref, "")
+
+        return original_plan
+
+    # ---------------------------------------------------------
+    # LOGGING CHO PAPER
+    # ---------------------------------------------------------
+    def log_experiment(self, question: str, candidates: List[PlanCandidate], 
+                       selected_candidate_id: str, pis_report: Optional[PISReport], 
+                       replan_result: Optional[PlanCandidate]):
+        """Dump JSONL để làm dataset huấn luyện hoặc phân tích paper."""
+        record = {
+            "question": question,
+            "candidates": [c.to_dict() for c in candidates],
+            "selected_candidate_id": selected_candidate_id,
+            "pis_report": asdict(pis_report) if pis_report else None,
+            "replan_result": replan_result.to_dict() if replan_result else None
+        }
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        logger.info(f"Experiment logged to {self.log_file}")
 
 
-# (Giả sử Class chứa hàm retrieve đó tên là ActiveReasonerRetriever)
-MultiSourceRetriever = ActiveReasonerRetriever
-
+# =====================================================================
+# QUICK TEST / USAGE EXAMPLE
+# =====================================================================
 if __name__ == "__main__":
-    cfg = ActiveReasonerConfig()
-    reasoner = ActiveReasonerRetriever(cfg)
-    result = reasoner.retrieve("How does MI300X accelerate symbolic logic paths?", credal_width=0.35)
-    logger.info(f"Final retrieved chunks: {result['retrieved_nodes']}")
-    logger.info(f"Reasoning Trace: {result['memory_trace']}")
+    planner = AtomicPlannerRetriever()
+    
+    # 1. Add corpus & index
+    planner.add_corpus([
+        (101, "MI300X accelerates tensor operations via XDNA architecture."),
+        (102, "Symbolic logic requires exact entity matching over graph nodes."),
+        (103, "Neuro-symbolic integration bridges gradient descent with rule-based systems.")
+    ])
+    planner.encode_chunks()
+    
+    # 2. Generate initial candidates
+    question = "How does MI300X execute neuro-symbolic logic?"
+    candidates = planner.generate_atomic_plans(question, n_samples=3)
+    
+    # 3. Giả lập Component 3 (PIS) phát hiện lỗi ở Candidate 0, Step 2
+    best_candidate = candidates[0]
+    report = PISReport(
+        failed_step_id="step_2", 
+        error_type="Logic_Contradiction", 
+        constraint="Must fetch architecture details of XDNA before inferring logic mapping."
+    )
+    
+    # 4. Replan từ bước lỗi
+    fixed_plan = planner.replan_from_pis(best_candidate, report)
+    
+    # 5. Log data chuẩn bị cho paper
+    planner.log_experiment(
+        question=question,
+        candidates=candidates,
+        selected_candidate_id=best_candidate.candidate_id,
+        pis_report=report,
+        replan_result=fixed_plan
+    )
+    print("Test finished. Check pis_experiments.jsonl")
+@dataclass
+class ActiveReasonerConfig:
+    hidden_size:      int   = 4096
+    num_layers:       int   = 32
+    num_heads:        int   = 32
+    intermediate_size: int  = 11008
+    max_seq_len:      int   = 4096
+    vocab_size:       int   = 32000
+    dropout:          float = 0.1
+    device:           str   = "cuda" if torch.cuda.is_available() else "cpu"

@@ -1,0 +1,598 @@
+{
+  "accuracy": 1.0,
+  "n": 8,
+  "results": [
+    {
+      "id": "eiffel_bad",
+      "question": "If the Eiffel Tower was built in 1889, how could a photograph of it exist in 1885?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "best_node_id": "replan_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_3865"
+          ],
+          "mutation_priority": [
+            "exec_step_1_3865"
+          ],
+          "repair_hint": "Step 'exec_step_1_3865': temporal contradiction suspected because claim year 1885 precedes origin year 1889. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_3865",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_d0e4"
+          ],
+          "mutation_priority": [
+            "exec_step_1_d0e4"
+          ],
+          "repair_hint": "Step 'exec_step_1_d0e4': temporal contradiction suspected because claim year 1885 precedes origin year 1889. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_d0e4",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 3,
+          "node_id": "replan_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "replan_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "smartphone_bad",
+      "question": "How could a smartphone exist in 1990 if it was invented in 2007?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "best_node_id": "replan_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_6083"
+          ],
+          "mutation_priority": [
+            "exec_step_1_6083"
+          ],
+          "repair_hint": "Step 'exec_step_1_6083': temporal contradiction suspected because claim year 1990 precedes origin year 2007. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_6083",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_0517"
+          ],
+          "mutation_priority": [
+            "exec_step_1_0517"
+          ],
+          "repair_hint": "Step 'exec_step_1_0517': temporal contradiction suspected because claim year 1990 precedes origin year 2007. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_0517",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 3,
+          "node_id": "replan_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "replan_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "company_bad",
+      "question": "How could a company founded in 2004 have signed a contract in 1999?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "best_node_id": "replan_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_3255"
+          ],
+          "mutation_priority": [
+            "exec_step_1_3255"
+          ],
+          "repair_hint": "Step 'exec_step_1_3255': temporal contradiction suspected because claim year 1999 precedes origin year 2004. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_3255",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_3bb3"
+          ],
+          "mutation_priority": [
+            "exec_step_1_3bb3"
+          ],
+          "repair_hint": "Step 'exec_step_1_3bb3': temporal contradiction suspected because claim year 1999 precedes origin year 2004. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_3bb3",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 3,
+          "node_id": "replan_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "replan_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "film_bad",
+      "question": "How could a movie released in 2015 win an award in 2010?",
+      "label": 1,
+      "pred": 1,
+      "correct": true,
+      "best_node_id": "replan_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_79a7"
+          ],
+          "mutation_priority": [
+            "exec_step_1_79a7"
+          ],
+          "repair_hint": "Step 'exec_step_1_79a7': temporal contradiction suspected because claim year 2010 precedes origin year 2015. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_79a7",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.85,
+          "quality": 0.15000000000000002,
+          "trigger": true,
+          "dominant_error": "temporal",
+          "mutation_strategy": "evidence",
+          "replan_targets": [
+            "exec_step_1_3074"
+          ],
+          "mutation_priority": [
+            "exec_step_1_3074"
+          ],
+          "repair_hint": "Step 'exec_step_1_3074': temporal contradiction suspected because claim year 2010 precedes origin year 2015. Replan: verify chronology and retrieve date-specific evidence.",
+          "errors": [
+            [
+              "exec_step_1_3074",
+              "temporal",
+              0.85
+            ]
+          ]
+        },
+        {
+          "iteration": 3,
+          "node_id": "replan_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "replan_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "eiffel_ok",
+      "question": "If the Eiffel Tower was built in 1889, could a photograph of it exist in 1890?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "best_node_id": "alt_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 3,
+          "node_id": "alt_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "alt_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "smartphone_ok",
+      "question": "Could a smartphone invented in 2007 exist in 2010?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "best_node_id": "alt_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 3,
+          "node_id": "alt_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "alt_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "company_ok",
+      "question": "Could a company founded in 2004 sign a contract in 2008?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "best_node_id": "alt_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 3,
+          "node_id": "alt_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "alt_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    },
+    {
+      "id": "film_ok",
+      "question": "Could a movie released in 2015 win an award in 2016?",
+      "label": 0,
+      "pred": 0,
+      "correct": true,
+      "best_node_id": "alt_002",
+      "global_score": 0.25,
+      "quality_score": 0.75,
+      "trace_log": [
+        {
+          "iteration": 1,
+          "node_id": "init_000",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 2,
+          "node_id": "init_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 3,
+          "node_id": "alt_001",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        },
+        {
+          "iteration": 4,
+          "node_id": "alt_002",
+          "score": 0.25,
+          "quality": 0.75,
+          "trigger": false,
+          "dominant_error": "none",
+          "mutation_strategy": "none",
+          "replan_targets": [],
+          "mutation_priority": [],
+          "repair_hint": "All proof steps within acceptable inconsistency bounds.",
+          "errors": null
+        }
+      ]
+    }
+  ]
+}
