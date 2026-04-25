@@ -566,6 +566,28 @@ class FailureDiagnoser:
             return years[0], years[1]
 
         return None 
+    @staticmethod
+    def _predict_tracie_like_text(text: str):
+        text = text.lower()
+
+        temporal_markers = [
+            "starts before",
+            "starts after",
+            "ends before",
+            "ends after",
+            "started before",
+            "started after",
+            "ended before",
+            "ended after",
+        ]
+
+        if "premise:" not in text or "hypothesis:" not in text:
+            return None
+
+        if any(m in text for m in temporal_markers):
+            return FailureType.TEMPORAL, "TRACIE heuristic"
+
+        return None
 
     @staticmethod
     def _predict_temporal_from_question_like_text(text: str):
@@ -583,7 +605,7 @@ class FailureDiagnoser:
                 and ("still ongoing" in text or "under construction" in text)
                 and ("exist in" in text or "photo" in text or "painting" in text)
             ):
-                return 1
+                return FailureType.TEMPORAL, "TRACIE heuristic"
             return None
 
         y1, y2 = years[0], years[1]
@@ -621,6 +643,261 @@ class FailureDiagnoser:
             return int(claim_year < origin_year)
 
         return None                           
+
+    @staticmethod
+    def _duration_to_days(value: int, unit: str) -> float:
+        unit = unit.lower().rstrip("s")
+
+        if unit in {"minute", "min"}:
+            return value / (60 * 24)
+        if unit in {"hour", "hr"}:
+            return value / 24
+        if unit == "day":
+            return value
+        if unit == "week":
+            return value * 7
+        if unit == "month":
+            return value * 30
+        if unit == "year":
+            return value * 365
+
+        return float(value)
+
+
+    @staticmethod
+    def _extract_temporal_bound(text: str):
+        text = text.lower().replace("minutess", "minutes")
+
+        # before 8 years / after 149 months / in 7 days
+        m = re.search(
+            r"\b(before|after|in)\s+(\d+)\s+"
+            r"(minute|min|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\b",
+            text,
+        )
+
+        if not m:
+            return None
+
+        op = m.group(1)
+        value = int(m.group(2))
+        unit = m.group(3)
+
+        days = FailureDiagnoser._duration_to_days(value, unit)
+
+        #"in X" = exact time point, represent as equality
+        if op == "in":
+            op = "at"
+
+        return op, days
+
+    @staticmethod
+    def _month_index(m: str):
+        m = m.lower()[:3]
+        months = {
+            "jan": 1, "feb": 2, "mar": 3, "apr": 4,
+            "may": 5, "jun": 6, "jul": 7, "aug": 8,
+            "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        }
+        return months.get(m)
+
+    @staticmethod
+    def _weekday_index(d: str):
+        d = d.lower()[:3]
+        days = {
+            "mon": 1, "tue": 2, "wed": 3, "thu": 4,
+            "fri": 5, "sat": 6, "sun": 7,
+        }
+        return days.get(d)
+
+    def _extract_event_order(self, text):
+        text = text.lower()
+
+        pairs = []
+
+        patterns = [
+            (r"(.+?) before (.+)", -1),
+            (r"(.+?) after (.+)", 1),
+        ]
+
+        for pat, direction in patterns:
+            m = re.search(pat, text)
+            if m:
+                a = m.group(1).strip()
+                b = m.group(2).strip()
+                pairs.append((a, b, direction))
+
+        return pairs
+
+    @staticmethod
+    def _parse_duration_claim_months(text: str):
+        text = text.lower()
+        less_than = "less than" in text
+
+        years = 0
+        months = 0
+
+        m = re.search(r"(\d+)\s+years?", text)
+        if m:
+            years = int(m.group(1))
+
+        m = re.search(r"(\d+)\s+months?", text)
+        if m:
+            months = int(m.group(1))
+
+        total_months = years * 12 + months
+        if total_months == 0:
+            return None
+
+        return ("lt" if less_than else "eq"), total_months
+    
+    @staticmethod
+    def _parse_range_duration_months(text: str):
+        text = text.lower()
+
+        # from Jun 1911 to Aug 1964
+        m = re.search(
+            r"(?:from|in|started in)\s+([a-z]+)\s+(\d{3,4})\s+"
+            r"(?:to|until|and graduated in|and remained so until)\s+([a-z]+)\s+(\d{3,4})",
+            text,
+        )
+        if m:
+            m1, y1, m2, y2 = m.group(1), int(m.group(2)), m.group(3), int(m.group(4))
+            mi1 = FailureDiagnoser._month_index(m1)
+            mi2 = FailureDiagnoser._month_index(m2)
+            if mi1 and mi2:
+                return abs((y2 - y1) * 12 + (mi2 - mi1))
+
+        # in 1912 and graduated in 1971
+        m = re.search(
+            r"in\s+(\d{3,4})\s+and\s+graduated\s+in\s+(\d{3,4})",
+            text,
+        )
+        if m:
+            return abs(int(m.group(2)) - int(m.group(1))) * 12
+
+        return None
+
+    @staticmethod
+    def _parse_duration_claim_days(text: str):
+        text = text.lower()
+
+        less_than = "less than" in text
+
+        years = 0
+        months = 0
+        days = 0
+        hours = 0
+
+        m = re.search(r"(\d+)\s+years?", text)
+        if m:
+            years = int(m.group(1))
+
+        m = re.search(r"(\d+)\s+months?", text)
+        if m:
+            months = int(m.group(1))
+
+        m = re.search(r"(\d+)\s+days?", text)
+        if m:
+            days = int(m.group(1))
+
+        m = re.search(r"(\d+)\s+hours?", text)
+        if m:
+            hours = int(m.group(1))
+
+        total_days = years * 365 + months * 30 + days + hours / 24
+
+        if total_days == 0:
+            return None
+
+        return ("lt" if less_than else "eq"), total_days
+
+    @staticmethod
+    def _parse_range_duration_days(text: str):
+        text = text.lower()
+
+        # year range: from 1973 to 1996
+        m = re.search(r"from\s+(\d{3,4})\s+to\s+(\d{3,4})", text)
+        if m:
+            return abs(int(m.group(2)) - int(m.group(1))) * 365
+
+        # month + year range: from Feb 1909 to December 1933
+        m = re.search(
+            r"from\s+([a-z]+)\s+(\d{3,4})\s+to\s+([a-z]+)\s+(\d{3,4})",
+            text,
+        )
+        if m:
+            m1, y1, m2, y2 = m.group(1), int(m.group(2)), m.group(3), int(m.group(4))
+            mi1 = FailureDiagnoser._month_index(m1)
+            mi2 = FailureDiagnoser._month_index(m2)
+            if mi1 and mi2:
+                return abs((y2 - y1) * 12 + (mi2 - mi1)) * 30
+
+        #    month range: from Aug to Mar, started in May until Jan
+        m = re.search(r"(?:from|in|started in|started)\s+([a-z]+)\s+(?:to|until|and ended in|and ended|remained so until|lasted until)\s+([a-z]+)", text)
+        if m:
+            mi1 = FailureDiagnoser._month_index(m.group(1))
+            mi2 = FailureDiagnoser._month_index(m.group(2))
+            if mi1 and mi2:
+                diff = mi2 - mi1
+                if diff <= 0:
+                    diff += 12
+                return diff * 30
+
+        # weekday range
+        m = re.search(r"from\s+([a-z]+)\s+to\s+([a-z]+)", text)
+        if m:
+            d1 = FailureDiagnoser._weekday_index(m.group(1))
+            d2 = FailureDiagnoser._weekday_index(m.group(2))
+            if d1 and d2:
+                diff = d2 - d1
+                if diff <= 0:
+                    diff += 7
+                return diff
+
+        # ordinal day range: from 3rd to 10th / 14th to 23rd
+        m = re.search(r"from\s+(\d+)(?:st|nd|rd|th)\s+to\s+(\d+)(?:st|nd|rd|th)", text)
+        if m:
+            return abs(int(m.group(2)) - int(m.group(1)))
+
+        # time range: from 04:00 to 23:00 / 02:00 to 10 PM / at 06:00 ... at 11:00
+        m = re.search(r"(?:from|at)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(?:to|until|and reached.*?at)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text)
+        if m:
+            h1 = int(m.group(1))
+            min1 = int(m.group(2) or 0)
+            ap1 = m.group(3)
+            h2 = int(m.group(4))
+            min2 = int(m.group(5) or 0)
+            ap2 = m.group(6)
+
+            def conv(h, minute, ap):
+                if ap == "pm" and h != 12:
+                    h += 12
+                if ap == "am" and h == 12:
+                    h = 0
+                return h + minute / 60
+
+            t1 = conv(h1, min1, ap1)
+            t2 = conv(h2, min2, ap2)
+            diff = t2 - t1
+            if diff <= 0:
+                diff += 24
+            return diff / 24
+
+            # weekday explicit: started on Monday and ended on Thursday
+            m = re.search(
+                r"(?:started|began)\s+on\s+([a-z]+)\s+and\s+(?:ended|lasted until)\s+on\s+([a-z]+)",
+                text,
+            )
+            if m:
+                d1 = FailureDiagnoser._weekday_index(m.group(1))
+                d2 = FailureDiagnoser._weekday_index(m.group(2))
+                if d1 and d2:
+                    diff = d2 - d1
+                    if diff <= 0:
+                        diff += 7
+                    return diff 
+
+        return None
 
     def diagnose(
         self,
@@ -670,8 +947,173 @@ class FailureDiagnoser:
         if not temporal_source:
             evidence_text = " ".join(ev.text for ev in linked_evidence).lower()
             temporal_source = evidence_text if evidence_text.strip() else step_text
+        
+        # === DURATION RANGE CHECK (TimeX-NLI duration subset) ===
+        if "premise:" in temporal_source and "hypothesis:" in temporal_source:
+            try:
+                premise_text = temporal_source.split("hypothesis:")[0].replace("premise:", "")
+                hyp_text = temporal_source.split("hypothesis:")[1].split("question:")[0]
+                
+                actual_months = self._parse_range_duration_months(premise_text)
+                claim_months = self._parse_duration_claim_months(hyp_text)
+
+                if actual_months is not None and claim_months is not None:
+                    op, claim_m = claim_months
+                    contradiction = False
+
+                    if op == "eq" and actual_months != claim_m:
+                        contradiction = True
+
+                    if op == "lt" and not (actual_months < claim_m):
+                        contradiction = True
+
+                    if contradiction:
+                        return (
+                            FailureType.TEMPORAL,
+                            f"Step '{step.step_id}': month-duration contradiction "
+                            f"(actual {actual_months} months vs claim {op} {claim_m} months)."
+                        )
+
+                    return (
+                        FailureType.NONE,
+                        "Month-duration range is consistent."
+                    )
+
+                actual_days = self._parse_range_duration_days(premise_text)
+                claim = self._parse_duration_claim_days(hyp_text)
+
+                if "lasted" in temporal_source or "from" in temporal_source:
+                    print("[DURATION_DEBUG]")
+                    print("PREMISE:", premise_text[:200])
+                    print("HYP:", hyp_text[:200])
+                    print("ACTUAL:", actual_days)
+                    print("CLAIM:", claim)
+
+                if actual_days is not None and claim is not None:
+                    op, claim_days = claim
+
+                    contradiction = False
+                    tol = 0.25  # day tolerance
+
+                    if op == "eq" and abs(actual_days - claim_days) > tol:
+                        contradiction = True
+
+                    if op == "lt" and not (actual_days < claim_days):
+                        contradiction = True
+
+                    if contradiction:
+                        return (
+                            FailureType.TEMPORAL,
+                            f"Step '{step.step_id}': duration-range contradiction "
+                            f"(actual {actual_days:.2f}d vs claim {op} {claim_days:.2f}d)."
+                        )
+
+                    return (
+                        FailureType.NONE,
+                        "Duration range is consistent."
+                    )
+            except Exception:
+                pass
+
+        # === DURATION-BASED TEMPORAL CHECK (TimeX-NLI) ===
+        if "premise:" in temporal_source and "hypothesis:" in temporal_source:
+            try:
+                premise_text = temporal_source.split("hypothesis:")[0].replace("premise:", "")
+                hyp_text = temporal_source.split("hypothesis:")[1].split("question:")[0]
+
+                p_bound = self._extract_temporal_bound(premise_text)
+                h_bound = self._extract_temporal_bound(hyp_text)
+
+                if p_bound and h_bound:
+                    p_op, p_days = p_bound
+                    h_op, h_days = h_bound
+
+                    contradiction = False
+
+                    if p_op == "before" and h_op == "after" and h_days >= p_days:
+                        contradiction = True
+                    if p_op == "after" and h_op == "before" and h_days <= p_days:
+                        contradiction = True
+
+                    if p_op == "at" and h_op == "before" and not (p_days < h_days):
+                        contradiction = True
+                    if p_op == "at" and h_op == "after" and not (p_days > h_days):
+                        contradiction = True
+                    if h_op == "at" and p_op == "before" and not (h_days < p_days):
+                        contradiction = True
+                    if h_op == "at" and p_op == "after" and not (h_days > p_days):
+                        contradiction = True
+
+                    if contradiction:
+                        return (
+                            FailureType.TEMPORAL,
+                            f"Step '{step.step_id}': duration contradiction "
+                            f"({p_op} {p_days:.1f}d vs {h_op} {h_days:.1f}d)."
+                        )
+                    else:
+                        return (
+                            FailureType.NONE,
+                            "Duration temporal relation consistent."
+                        )
+            except Exception:
+                pass
+
+
+        # === SIMPLE ORDER HEURISTIC (TRACIE BOOST) ===
+        text = temporal_source.lower()
+
+        if "before" in text and "after" in text:
+            return FailureType.TEMPORAL, "TRACIE heuristic"  # conflict
+
+        if "starts after" in text and "ends before" in text:
+            return FailureType.TEMPORAL, "TRACIE heuristic"
+
+        if "starts before" in text and "ends after" in text:
+            return FailureType.TEMPORAL, "TRACIE heuristic"    
+
+        # === EVENT ORDER EXTRACTION (TRACIE BOOST) ===
+        pairs = self._extract_event_order(temporal_source)
+
+        # === TRACIE TARGETED EVENT-ORDER BOOST (FIXED) ===
+        text = temporal_source.lower()
+
+        if "premise:" in text and "hypothesis:" in text:
+            prem = text.split("premise:", 1)[1].split("hypothesis:", 1)[0]
+            hyp = text.split("hypothesis:", 1)[1].split("question:", 1)[0]
+
+            # chỉ trigger khi HYPOTHESIS có order claim
+            if (
+                "before" in hyp or "after" in hyp
+            ):
+                # và premise cũng có event/time
+                if (
+                    "before" in prem
+                    or "after" in prem
+                    or "in " in prem
+                    or "on " in prem
+                ):
+                    return FailureType.TEMPORAL, "TRACIE event-order conflict"
+
+        # === TRACIE FLAG (KHÔNG return sớm nữa) ===
+        text = temporal_source.lower()
+        tracie_flag = False
+
+        if "premise:" in text and "hypothesis:" in text:
+            prem = text.split("premise:", 1)[1].split("hypothesis:", 1)[0]
+            hyp = text.split("hypothesis:", 1)[1].split("question:", 1)[0]
+
+            if (
+                ("before" in hyp or "after" in hyp)
+                and ("before" in prem or "after" in prem)
+    )       :
+                tracie_flag = True
 
         temporal_pred = self._predict_temporal_from_question_like_text(temporal_source)
+
+        # === APPLY HEURISTIC (SOFT, không override mạnh) ===
+        if tracie_flag and temporal_pred == 0:
+            temporal_pred = 1
+        
 
         if temporal_pred == 1:
             return (

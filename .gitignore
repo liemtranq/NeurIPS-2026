@@ -1,0 +1,9 @@
+__pycache__/
+venv/
+*.pyc
+*.log
+*.jsonl
+pis_experiments.jsonl
+*.pt
+*.pth
+.DS_Store
