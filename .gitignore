@@ -1,9 +1,51 @@
+# Python bytecode and caches
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
 venv/
-*.pyc
+env/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Editors and IDEs
+.vscode/
+.idea/
+
+# Logs and temporary files
 *.log
-*.jsonl
-pis_experiments.jsonl
+*.tmp
+*.swp
+*~
+
+# Model and experiment caches
+.cache/
+checkpoints/
+wandb/
+runs/
+
+# Large model artifacts
 *.pt
 *.pth
-.DS_Store
+*.ckpt
+*.safetensors
+
+# Local environment files
+.env
+.env.*
