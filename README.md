@@ -1,8 +1,10 @@
 # Probabilistic Inconsistency Signal for Neuro-Symbolic Temporal QA
 
 <p align="center">
-Official implementation of <em>Temporal Reasoning Is Not the Bottleneck: A Probabilistic Inconsistency Framework for Neuro-Symbolic QA</em><br>
-Under review, NeurIPS 2026
+Reference implementation accompanying the manuscript
+
+Temporal Reasoning Is Not the Bottleneck:
+A Probabilistic Inconsistency Framework for Neuro-Symbolic QA
 </p>
 
 <p align="center">
@@ -73,7 +75,7 @@ Each directory maps to one stage of the pipeline described above; see [Method](#
 ## Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/liemtranq/NeurIPS-2026.git
 cd <repository-name>
 pip install -r requirements.txt
 ```
@@ -137,17 +139,17 @@ Full ablation and diagnostic tables are reported in the paper.
 ## Citation
 
 ```bibtex
-@inproceedings{tran2026temporal,
-  title     = {Temporal Reasoning Is Not the Bottleneck: A Probabilistic Inconsistency Framework for Neuro-Symbolic QA},
-  author    = {Tran, Quang Liem},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year      = {2026},
-  note      = {Under review}
+@misc{tran2026pis,
+  title={Temporal Reasoning Is Not the Bottleneck: A Probabilistic Inconsistency Framework for Neuro-Symbolic QA},
+  author={Tran, Quang Liem},
+  year={2026},
+  note={Manuscript}
 }
 ```
 
-Citation details will be finalized upon acceptance.
+Citation information will be updated if a peer-reviewed version becomes available.
 
 ## License
 
-License terms will be added prior to public release.
+This project is released under the MIT License.
+See LICENSE for details.
