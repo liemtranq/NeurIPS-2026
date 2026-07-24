@@ -22,18 +22,18 @@ A Probabilistic Inconsistency Framework for Neuro-Symbolic QA
 
 ## Overview
 
-Neuro-symbolic temporal QA systems extract events and constraints from text, then reason over them with a symbolic engine. When these systems produce a wrong answer, there is no way to tell whether the extraction was wrong or the reasoning was wrong — both look identical at the output level.
+Neuro-symbolic temporal QA systems extract events and constraints from text, then reason over them with a symbolic engine. When these systems produce a wrong answer, there is no way to tell whether the extraction was wrong or the reasoning was wrong both look identical at the output level.
 
 This ambiguity has led the field to assume that LLMs are fundamentally weak at temporal deduction. This repository implements a framework built to test that assumption directly, by making extraction errors and reasoning errors distinguishable at the step level.
 
-The core idea is the **Probabilistic Inconsistency Signal (PIS)**: a per-step score that fuses symbolic credal-interval contradictions with epistemic uncertainty estimated from an LLM's hidden states. PIS is used both to diagnose *where* a proof trace fails and to route repair — replanning for perceptual uncertainty, structural mutation for hard symbolic contradiction.
+The core idea is the **Probabilistic Inconsistency Signal (PIS)**: a per-step score that fuses symbolic credal-interval contradictions with epistemic uncertainty estimated from an LLM's hidden states. PIS is used both to diagnose *where* a proof trace fails and to route repair replanning for perceptual uncertainty, structural mutation for hard symbolic contradiction.
 
 ## Key Contributions
 
-- **Decoupled architecture** — separates event/structure extraction from symbolic deduction instead of treating temporal QA as end-to-end generation.
-- **Fused uncertainty signal** — combines credal-interval bounds with EDL-derived epistemic uncertainty into a single step-level inconsistency score (PIS).
-- **Diagnosis-driven repair** — an MCTS orchestrator selects between evidence replanning and structural mutation based on the source of the inconsistency.
-- **Controlled isolation of the bottleneck** — evaluates across benchmarks with decreasing structural supervision to attribute errors to representation rather than reasoning.
+- **Decoupled architecture**: separates event/structure extraction from symbolic deduction instead of treating temporal QA as end-to-end generation.
+- **Fused uncertainty signal**: combines credal-interval bounds with EDL-derived epistemic uncertainty into a single step-level inconsistency score (PIS).
+- **Diagnosis-driven repair**: an MCTS orchestrator selects between evidence replanning and structural mutation based on the source of the inconsistency.
+- **Controlled isolation of the bottleneck**: evaluates across benchmarks with decreasing structural supervision to attribute errors to representation rather than reasoning.
 
 ---
 
